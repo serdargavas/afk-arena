@@ -2,23 +2,25 @@ import { useGameStore } from '../store/gameStore';
 import { formatNum } from './format';
 
 export function Hud() {
-  // Selective subscriptions: each cell re-renders only when its slice changes.
-  const wave = useGameStore((s) => s.wave);
+  const stage = useGameStore((s) => s.stage);
+  const biome = useGameStore((s) => s.biomeName);
   const dps = useGameStore((s) => s.dps);
-  const kills = useGameStore((s) => s.kills);
+  const essence = useGameStore((s) => s.essence);
+  const relics = useGameStore((s) => s.relicCount);
 
   return (
     <div className="hud">
-      <Cell k="WAVE" v={wave.toString()} />
+      <Cell k="STAGE" v={`${stage}`} sub={biome} />
       <Cell k="DPS" v={formatNum(dps)} />
-      <Cell k="KILLS" v={formatNum(kills)} />
+      <Cell k="RELICS" v={`${relics}`} />
+      <Cell k="ESSENCE" v={formatNum(essence)} />
     </div>
   );
 }
 
-function Cell({ k, v }: { k: string; v: string }) {
+function Cell({ k, v, sub }: { k: string; v: string; sub?: string }) {
   return (
-    <div className="hud-cell">
+    <div className="hud-cell" title={sub}>
       <span className="hud-k">{k}</span>
       <span className="hud-v">{v}</span>
     </div>

@@ -10,36 +10,68 @@ import {
 import { stepSim, type TickEvents } from './game/combat';
 import { applyOffline } from './game/offline';
 import { serialize } from './game/save';
-import { heroDps } from './game/economy';
-import type { GameState, UISnapshot } from './game/types';
+import { pickRelic, resolveEvent, rebirth } from './game/run';
+import { buyNode, selectClass } from './game/meta';
+import { expectedDps } from './game/stats';
+import { biomeName } from './game/progression';
+import type { GameSave, UISnapshot, ClassId } from './game/types';
 import { Renderer } from './render/renderer';
 import { ParticlePool } from './render/particles';
-import { pushSnapshot } from './store/gameStore';
+import { pushSnapshot, bumpScreen, useGameStore, type GameActions } from './store/gameStore';
 import { saveRaw } from './platform/storage';
 
-function toSnapshot(s: GameState): UISnapshot {
+function snapshotOf(save: GameSave): UISnapshot {
+  const run = save.run;
   return {
-    gold: Math.floor(s.gold),
-    wave: s.wave,
-    kills: s.kills,
-    dps: Math.round(heroDps(s.hero)),
-    enemyHp: Math.max(0, Math.ceil(s.enemy.hp)),
-    enemyMaxHp: s.enemy.maxHp,
+    phase: run.phase,
+    stage: run.stage,
+    waveInStage: run.waveInStage,
+    biomeName: biomeName(run.stage),
+    gold: Math.floor(run.gold),
+    essence: Math.floor(save.meta.essence),
+    kills: run.kills,
+    dps: Math.round(expectedDps(run.stats)),
+    heroHp: Math.max(0, Math.ceil(run.hero.hp)),
+    heroMaxHp: run.stats.maxHp,
+    enemyHp: Math.max(0, Math.ceil(run.enemy.hp)),
+    enemyMaxHp: run.enemy.maxHp,
+    enemyKind: run.enemy.kind,
+    relicCount: run.relics.length,
+    bestStage: save.meta.bestStage,
   };
 }
 
-/**
- * Owns the authoritative game state and the single rAF loop. Keeps the
- * simulation (fixed timestep) decoupled from rendering, React store pushes, and
- * autosave — each on its own cadence. See PLAN.md §3.
- */
+/** Cheap fingerprint of screen-level state; when it changes, modals re-read. */
+function screenKeyOf(save: GameSave): string {
+  const r = save.run;
+  const m = save.meta;
+  const offer = r.offer ? r.offer.map((o) => o.id + o.rarity).join(',') : '-';
+  const nodes = Object.entries(m.nodes)
+    .map(([k, v]) => k + v)
+    .join(',');
+  return [
+    r.phase,
+    offer,
+    r.eventId ?? '-',
+    r.essenceOnDeath,
+    r.relics.length,
+    m.essence,
+    m.selectedClass,
+    m.unlockedClasses.join('|'),
+    nodes,
+    m.settings.alwaysOnTop ? 1 : 0,
+    m.settings.overFullscreen ? 1 : 0,
+    m.playerName,
+  ].join('~');
+}
+
 export class GameLoop {
-  readonly state: GameState;
+  readonly save: GameSave;
   private readonly particles = new ParticlePool();
   private readonly renderer: Renderer;
 
-  private acc = 0; // unspent real time (ms) waiting to become sim ticks
-  private simTime = 0; // total simulated seconds (drives render animation)
+  private acc = 0;
+  private simTime = 0;
   private focused = true;
   private running = false;
   private rafId = 0;
@@ -47,9 +79,10 @@ export class GameLoop {
   private lastRenderAt = 0;
   private lastStorePush = 0;
   private lastAutosave = 0;
+  private lastScreenKey = '';
 
-  constructor(state: GameState, canvas: HTMLCanvasElement) {
-    this.state = state;
+  constructor(save: GameSave, canvas: HTMLCanvasElement) {
+    this.save = save;
     this.renderer = new Renderer(canvas, this.particles);
   }
 
@@ -57,12 +90,13 @@ export class GameLoop {
     if (this.running) return;
     this.running = true;
     const now = Date.now();
-    this.state.lastSeen = now;
+    this.save.lastSeen = now;
     this.lastRenderAt = now;
     this.lastStorePush = now;
     this.lastAutosave = now;
     this.renderer.resize();
-    pushSnapshot(toSnapshot(this.state));
+    useGameStore.getState().attach(this.save, this.buildActions());
+    this.syncStore(true);
     window.addEventListener('resize', this.onResize);
     this.rafId = requestAnimationFrame(this.frame);
   }
@@ -83,54 +117,84 @@ export class GameLoop {
   private frame = (): void => {
     if (!this.running) return;
     const now = Date.now();
-    const realDelta = now - this.state.lastSeen;
+    const realDelta = now - this.save.lastSeen;
+    this.save.lastSeen = now;
 
-    if (realDelta > BULK_CATCHUP_THRESHOLD_MS) {
-      // Long stall / minimize / sleep — fold in analytically, don't tick-spin.
-      applyOffline(this.state, realDelta / 1000);
+    if (this.save.run.phase === 'fighting') {
+      if (realDelta > BULK_CATCHUP_THRESHOLD_MS) {
+        // Long stall / minimize / sleep — fold in analytically (auto-plays relics).
+        applyOffline(this.save, realDelta / 1000);
+        this.acc = 0;
+      } else if (realDelta > 0) {
+        this.acc += realDelta;
+      }
+      let steps = 0;
+      while (this.acc >= TICK_DT_MS && steps < MAX_STEPS_PER_FRAME && this.save.run.phase === 'fighting') {
+        this.emit(stepSim(this.save));
+        this.acc -= TICK_DT_MS;
+        this.simTime += TICK_DT;
+        steps++;
+      }
+      if (steps >= MAX_STEPS_PER_FRAME) this.acc = 0;
+    } else {
+      // Paused on a relic/event/death screen — don't bank real time as combat.
       this.acc = 0;
-    } else if (realDelta > 0) {
-      this.acc += realDelta;
     }
-    this.state.lastSeen = now;
 
-    // Fixed-timestep simulation with a spiral-of-death guard.
-    let steps = 0;
-    while (this.acc >= TICK_DT_MS && steps < MAX_STEPS_PER_FRAME) {
-      const events = stepSim(this.state);
-      if (this.focused) this.emit(events);
-      this.acc -= TICK_DT_MS;
-      this.simTime += TICK_DT;
-      steps++;
-    }
-    if (steps >= MAX_STEPS_PER_FRAME) this.acc = 0; // drop backlog
-
-    // Render — full rate when focused, ~5fps when blurred.
     const renderInterval = this.focused ? 0 : UNFOCUSED_FRAME_INTERVAL_MS;
     if (now - this.lastRenderAt >= renderInterval) {
       const dt = Math.min(0.1, (now - this.lastRenderAt) / 1000) || 0.016;
       this.particles.update(dt);
-      this.renderer.render(this.state, this.simTime);
+      this.renderer.render(this.save, this.simTime);
       this.lastRenderAt = now;
     }
 
-    // Throttled React store push (~3/sec).
     if (now - this.lastStorePush >= STORE_PUSH_INTERVAL_MS) {
-      pushSnapshot(toSnapshot(this.state));
+      this.syncStore(false);
       this.lastStorePush = now;
     }
 
-    // Autosave.
     if (now - this.lastAutosave >= AUTOSAVE_INTERVAL_MS) {
       this.lastAutosave = now;
-      void saveRaw(serialize(this.state));
+      void saveRaw(serialize(this.save));
     }
 
     this.rafId = requestAnimationFrame(this.frame);
   };
 
+  private syncStore(force: boolean): void {
+    pushSnapshot(snapshotOf(this.save));
+    const key = screenKeyOf(this.save);
+    if (force || key !== this.lastScreenKey) {
+      this.lastScreenKey = key;
+      bumpScreen();
+    }
+  }
+
   private emit(events: TickEvents): void {
+    if (!this.focused) return;
     if (events.hit) this.renderer.onHit(events.hit.damage, events.hit.crit);
+    if (events.hurt) this.renderer.onHurt(events.hurt.damage);
     if (events.kill) this.renderer.onKill(events.kill.gold);
+  }
+
+  /** Run an action that mutates the save, then immediately re-sync + persist. */
+  private act(fn: () => void): void {
+    fn();
+    this.syncStore(true);
+    void saveRaw(serialize(this.save));
+  }
+
+  private buildActions(): GameActions {
+    return {
+      pickRelic: (i) => this.act(() => pickRelic(this.save, i)),
+      resolveEvent: (i) => this.act(() => resolveEvent(this.save, i)),
+      rebirth: () => this.act(() => rebirth(this.save)),
+      buyNode: (id) => this.act(() => buyNode(this.save, id)),
+      selectClass: (id: ClassId) => this.act(() => selectClass(this.save, id)),
+      setAlwaysOnTop: (v) => this.act(() => { this.save.meta.settings.alwaysOnTop = v; }),
+      setOverFullscreen: (v) => this.act(() => { this.save.meta.settings.overFullscreen = v; }),
+      setPlayerName: (name) => this.act(() => { this.save.meta.playerName = name.slice(0, 24); }),
+    };
   }
 }

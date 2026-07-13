@@ -1,29 +1,76 @@
 import { create } from 'zustand';
-import type { UISnapshot, OfflineReport } from '../game/types';
+import type { GameSave, UISnapshot, OfflineReport, ClassId } from '../game/types';
+
+/** Imperative actions the UI invokes; the loop wires the real implementations. */
+export interface GameActions {
+  pickRelic: (index: number) => void;
+  resolveEvent: (index: number) => void;
+  rebirth: () => void;
+  buyNode: (id: string) => void;
+  selectClass: (id: ClassId) => void;
+  setAlwaysOnTop: (v: boolean) => void;
+  setOverFullscreen: (v: boolean) => void;
+  setPlayerName: (name: string) => void;
+}
+
+const NOOP: GameActions = {
+  pickRelic: () => {},
+  resolveEvent: () => {},
+  rebirth: () => {},
+  buyNode: () => {},
+  selectClass: () => {},
+  setAlwaysOnTop: () => {},
+  setOverFullscreen: () => {},
+  setPlayerName: () => {},
+};
+
+const INITIAL: UISnapshot = {
+  phase: 'fighting',
+  stage: 1,
+  waveInStage: 0,
+  biomeName: '',
+  gold: 0,
+  essence: 0,
+  kills: 0,
+  dps: 0,
+  heroHp: 0,
+  heroMaxHp: 0,
+  enemyHp: 0,
+  enemyMaxHp: 0,
+  enemyKind: 'normal',
+  relicCount: 0,
+  bestStage: 1,
+};
 
 interface GameStore extends UISnapshot {
   offline: OfflineReport | null;
-  alwaysOnTop: boolean;
-  pushSnapshot: (s: UISnapshot) => void;
+  // Bumped whenever screen-level state (offer/event/relics/meta/settings) changes,
+  // so modal components re-read the live `save` without per-frame copying.
+  screenVersion: number;
+  save: GameSave | null;
+  actions: GameActions;
+  applySnapshot: (s: UISnapshot) => void;
+  bumpScreen: () => void;
   setOffline: (r: OfflineReport | null) => void;
-  setAlwaysOnTop: (v: boolean) => void;
+  attach: (save: GameSave, actions: GameActions) => void;
 }
 
 export const useGameStore = create<GameStore>((set) => ({
-  gold: 0,
-  wave: 1,
-  kills: 0,
-  dps: 0,
-  enemyHp: 0,
-  enemyMaxHp: 0,
+  ...INITIAL,
   offline: null,
-  alwaysOnTop: false,
-  pushSnapshot: (s) => set(s),
+  screenVersion: 0,
+  save: null,
+  actions: NOOP,
+  applySnapshot: (s) => set(s),
+  bumpScreen: () => set((st) => ({ screenVersion: st.screenVersion + 1 })),
   setOffline: (r) => set({ offline: r }),
-  setAlwaysOnTop: (v) => set({ alwaysOnTop: v }),
+  attach: (save, actions) => set({ save, actions }),
 }));
 
-/** Non-hook accessor so the (non-React) game loop can push updates. */
+// Non-hook accessors for the (non-React) game loop.
 export function pushSnapshot(s: UISnapshot): void {
-  useGameStore.getState().pushSnapshot(s);
+  useGameStore.getState().applySnapshot(s);
+}
+export function bumpScreen(): void {
+  useGameStore.getState().bumpScreen();
 }

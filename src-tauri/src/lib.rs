@@ -34,8 +34,11 @@ fn position_bottom_right(win: &WebviewWindow) {
     let Some(monitor) = monitor else { return };
     let screen = monitor.size();
     let Ok(size) = win.outer_size() else { return };
-    let margin = 24_i32;
-    let dock_gap = 72_i32; // leave room above the Dock
+    // Sizes are physical pixels; scale the logical margins so spacing is correct
+    // on HiDPI/Retina displays (review finding #5).
+    let scale = monitor.scale_factor();
+    let margin = (24.0 * scale) as i32;
+    let dock_gap = (72.0 * scale) as i32; // leave room above the Dock
     let x = screen.width as i32 - size.width as i32 - margin;
     let y = screen.height as i32 - size.height as i32 - margin - dock_gap;
     let _ = win.set_position(PhysicalPosition::new(x.max(0), y.max(0)));

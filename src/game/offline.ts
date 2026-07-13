@@ -1,44 +1,83 @@
-import { MAX_OFFLINE_SECONDS, MAX_OFFLINE_ITERS } from './constants';
-import { heroDps, spawnEnemy } from './economy';
-import type { GameState, OfflineReport } from './types';
+import { TICK_DT, MAX_OFFLINE_SECONDS, MAX_OFFLINE_ITERS } from './constants';
+import { stepSim } from './combat';
+import { pickRelic, resolveEvent } from './run';
+import { RARITIES } from './types';
+import type { GameSave, OfflineReport, RunPhase } from './types';
+
+// Rarity preference (best first) for the offline auto-picker.
+const RARITY_RANK = [...RARITIES].reverse(); // legendary..common
+
+function autoPickIndex(save: GameSave): number {
+  const offer = save.run.offer ?? [];
+  let best = 0;
+  let bestRank = Infinity;
+  offer.forEach((r, i) => {
+    const rank = RARITY_RANK.indexOf(r.rarity);
+    if (rank !== -1 && rank < bestRank) {
+      bestRank = rank;
+      best = i;
+    }
+  });
+  return best;
+}
 
 /**
- * Analytic / loop-capped catch-up for time spent away (app closed, minimized,
- * or a long stall). Instead of stepping every 100ms tick, it clears whole
- * enemies in O(waves): time-to-kill = enemyHp / expectedDps. Bounded by both a
- * time cap (MAX_OFFLINE_SECONDS) and an iteration cap (MAX_OFFLINE_ITERS).
- *
- * Mutates `state` in place and returns a report for the "welcome back" modal.
+ * Catch up for time spent away (closed / minimized / stalled). Replays the real
+ * combat step so offline progress is exactly consistent with live play, but
+ * auto-picks relics/events and is bounded by both a time budget and an
+ * iteration cap. Stops at death (the player returns to the death screen).
  */
-export function applyOffline(state: GameState, elapsedSeconds: number): OfflineReport {
+export function applyOffline(save: GameSave, elapsedSeconds: number): OfflineReport {
+  const empty: OfflineReport = {
+    seconds: 0,
+    goldGained: 0,
+    kills: 0,
+    stagesCleared: 0,
+    relicsGained: 0,
+    died: save.run.phase === 'dead',
+    capped: false,
+  };
+  // Only progress from an active fight. If the player closed on a relic/event
+  // choice (or a death screen), present that on reopen instead of auto-resolving.
+  if (save.run.phase !== 'fighting') return empty;
+
   const capped = elapsedSeconds > MAX_OFFLINE_SECONDS;
   const budget = Math.min(Math.max(0, elapsedSeconds), MAX_OFFLINE_SECONDS);
-  let remaining = budget;
 
-  const dps = heroDps(state.hero);
-  let goldGained = 0;
-  let kills = 0;
-  let wavesCleared = 0;
+  const startGold = save.run.gold;
+  const startKills = save.run.kills;
+  const startStage = save.run.stage;
+  const startRelics = save.run.relics.length;
 
-  if (dps > 0) {
-    for (let iters = 0; remaining > 0 && iters < MAX_OFFLINE_ITERS; iters++) {
-      const timeToKill = state.enemy.hp / dps;
-      if (timeToKill > remaining) {
-        // Not enough time to finish the current enemy — chip its HP and stop.
-        state.enemy.hp -= dps * remaining;
-        remaining = 0;
-        break;
-      }
-      remaining -= timeToKill;
-      goldGained += state.enemy.goldReward;
-      kills += 1;
-      wavesCleared += 1;
-      state.gold += state.enemy.goldReward;
-      state.kills += 1;
-      state.wave += 1;
-      state.enemy = spawnEnemy(state.wave);
+  let simulated = 0;
+  let iters = 0;
+  let died = false; // guaranteed 'fighting' at this point
+
+  while (simulated < budget && iters < MAX_OFFLINE_ITERS && !died) {
+    iters++;
+    // Read into a local so TS doesn't narrow save.run.phase across the mutating
+    // stepSim call (the phase can flip to 'dead' inside it).
+    const phase: RunPhase = save.run.phase;
+    if (phase === 'fighting') {
+      stepSim(save);
+      simulated += TICK_DT;
+      if ((save.run.phase as RunPhase) === 'dead') died = true;
+    } else if (phase === 'relic') {
+      pickRelic(save, autoPickIndex(save));
+    } else if (phase === 'event') {
+      resolveEvent(save, 0);
+    } else {
+      died = true;
     }
   }
 
-  return { seconds: budget, goldGained, kills, wavesCleared, capped };
+  return {
+    seconds: budget,
+    goldGained: Math.max(0, save.run.gold - startGold),
+    kills: Math.max(0, save.run.kills - startKills),
+    stagesCleared: Math.max(0, save.run.stage - startStage),
+    relicsGained: Math.max(0, save.run.relics.length - startRelics),
+    died,
+    capped,
+  };
 }

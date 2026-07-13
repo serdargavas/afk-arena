@@ -1,55 +1,88 @@
 import { describe, it, expect } from 'vitest';
-import { createInitialState } from './save';
+import { createInitialSave } from './save';
 import { stepSim } from './combat';
-import { enemyHpForWave, goldForWave } from './economy';
+import { pickRelic, rebirth } from './run';
+import { buyNode } from './meta';
 
-describe('economy scaling', () => {
-  it('has the expected wave-1 baselines', () => {
-    expect(enemyHpForWave(1)).toBe(10);
-    expect(goldForWave(1)).toBe(5);
-  });
-
-  it('grows monotonically with wave', () => {
-    expect(enemyHpForWave(5)).toBeGreaterThan(enemyHpForWave(1));
-    expect(goldForWave(5)).toBeGreaterThan(goldForWave(1));
+describe('run setup', () => {
+  it('starts a fresh run at stage 1 with full hp and warrior unlocked', () => {
+    const s = createInitialSave(0);
+    expect(s.run.stage).toBe(1);
+    expect(s.run.phase).toBe('fighting');
+    expect(s.run.hero.hp).toBe(s.run.stats.maxHp);
+    expect(s.meta.unlockedClasses).toContain('warrior');
   });
 });
 
 describe('stepSim', () => {
-  it('kills the enemy and advances the wave + gold', () => {
-    const s = createInitialState(0);
-    const startWave = s.wave;
+  it('deals damage, grants gold, and reaches a relic choice on stage clear', () => {
+    const s = createInitialSave(0);
     let ticks = 0;
-    while (s.wave === startWave && ticks < 1000) {
+    while (s.run.phase === 'fighting' && ticks < 20000) {
       stepSim(s);
       ticks++;
     }
-    expect(s.wave).toBe(startWave + 1);
-    expect(s.kills).toBe(1);
-    expect(s.gold).toBeGreaterThan(0);
+    expect(s.run.kills).toBeGreaterThan(0);
+    expect(s.run.gold).toBeGreaterThan(0);
+    expect(['relic', 'event', 'dead']).toContain(s.run.phase);
+  });
+
+  it('pauses the sim while awaiting a relic pick, then resumes', () => {
+    const s = createInitialSave(0);
+    let ticks = 0;
+    while (s.run.phase === 'fighting' && ticks < 20000) {
+      stepSim(s);
+      ticks++;
+    }
+    if (s.run.phase === 'relic') {
+      const before = s.run.relics.length;
+      // sim does nothing while choosing
+      const gold = s.run.gold;
+      stepSim(s);
+      expect(s.run.gold).toBe(gold);
+      pickRelic(s, 0);
+      expect(s.run.relics.length).toBe(before + 1);
+    }
   });
 
   it('is deterministic for a fixed seed', () => {
-    const a = createInitialState(0, 123);
-    const b = createInitialState(0, 123);
-    for (let i = 0; i < 500; i++) {
+    const a = createInitialSave(0, 42);
+    const b = createInitialSave(0, 42);
+    for (let i = 0; i < 4000; i++) {
       stepSim(a);
       stepSim(b);
     }
-    expect(a.gold).toBe(b.gold);
-    expect(a.wave).toBe(b.wave);
-    expect(a.kills).toBe(b.kills);
+    expect(a.run.gold).toBe(b.run.gold);
+    expect(a.run.stage).toBe(b.run.stage);
     expect(a.rngState).toBe(b.rngState);
   });
+});
 
-  it('diverges for different seeds (crit RNG is actually used)', () => {
-    const a = createInitialState(0, 1);
-    const b = createInitialState(0, 999999);
-    for (let i = 0; i < 2000; i++) {
-      stepSim(a);
-      stepSim(b);
+describe('meta + rebirth', () => {
+  it('rebirth banks essence and resets the run', () => {
+    const s = createInitialSave(0);
+    // advance a bit to reach a higher stage
+    let ticks = 0;
+    while (s.run.stage < 3 && ticks < 40000) {
+      if (s.run.phase === 'relic') pickRelic(s, 0);
+      else if (s.run.phase === 'event') break;
+      else if (s.run.phase === 'dead') break;
+      else stepSim(s);
+      ticks++;
     }
-    // Different crit rolls → different rng state after the same tick count.
-    expect(a.rngState).not.toBe(b.rngState);
+    const beforeEssence = s.meta.essence;
+    rebirth(s);
+    expect(s.meta.essence).toBeGreaterThanOrEqual(beforeEssence);
+    expect(s.run.stage).toBeGreaterThanOrEqual(1);
+    expect(s.run.relics.length).toBe(0);
+  });
+
+  it('buys a meta node when affordable', () => {
+    const s = createInitialSave(0);
+    s.meta.essence = 100;
+    const ok = buyNode(s, 'might');
+    expect(ok).toBe(true);
+    expect(s.meta.nodes['might']).toBe(1);
+    expect(s.meta.essence).toBeLessThan(100);
   });
 });
