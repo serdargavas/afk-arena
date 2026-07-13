@@ -1,7 +1,19 @@
 use std::fs;
+use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::net::{TcpListener, TcpStream};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use sha2::{Digest, Sha256};
 use tauri::{Manager, PhysicalPosition, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
 
 const SAVE_FILE: &str = "save.json";
+
+const GOOGLE_CLIENT_ID: &str = env!("GOOGLE_CLIENT_ID");
+const GOOGLE_CLIENT_SECRET: &str = env!("GOOGLE_CLIENT_SECRET");
+const AUTH_TIMEOUT_SECS: u64 = 180;
 
 /// Read the save file from the app data dir. Returns None if it doesn't exist.
 #[tauri::command]
@@ -86,6 +98,200 @@ fn position_bottom_right(win: &WebviewWindow) {
     let _ = win.set_position(PhysicalPosition::new(x.max(0), y.max(0)));
 }
 
+// ---------- Google OAuth (desktop / installed-app PKCE flow) ----------
+
+fn random_b64url(bytes: usize) -> String {
+    let mut buf = vec![0u8; bytes];
+    getrandom::getrandom(&mut buf).expect("OS RNG unavailable");
+    URL_SAFE_NO_PAD.encode(&buf)
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'%' if i + 2 < b.len() => {
+                let hex = std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("");
+                if let Ok(v) = u8::from_str_radix(hex, 16) {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+                out.push(b'%');
+                i += 1;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn query_param(query: &str, key: &str) -> Option<String> {
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        (k == key).then(|| percent_decode(v))
+    })
+}
+
+/// Read one HTTP request off the loopback socket, reply with a friendly page, and
+/// return the OAuth result: Some(Ok(code)) once the redirect lands, Some(Err(..))
+/// on an error/state-mismatch, or None for unrelated hits (favicon, etc.).
+fn handle_oauth_conn(stream: TcpStream, expected_state: &str) -> Option<Result<String, String>> {
+    let mut reader = BufReader::new(&stream);
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() {
+        return None;
+    }
+    // "GET /?code=...&state=... HTTP/1.1"
+    let path = line.split_whitespace().nth(1)?;
+    let query = path.split_once('?').map(|(_, q)| q).unwrap_or("");
+    if query_param(query, "code").is_none() && query_param(query, "error").is_none() {
+        reply(&stream, "AFK Arena", "Waiting for sign-in…");
+        return None;
+    }
+
+    let result = (|| {
+        if let Some(err) = query_param(query, "error") {
+            return Err(format!("Google returned: {err}"));
+        }
+        if query_param(query, "state").as_deref() != Some(expected_state) {
+            return Err("State mismatch (possible tampering)".to_string());
+        }
+        query_param(query, "code").ok_or_else(|| "No authorization code".to_string())
+    })();
+
+    match &result {
+        Ok(_) => reply(&stream, "✓ Signed in", "You're all set — return to AFK Arena."),
+        Err(e) => reply(&stream, "Sign-in failed", e),
+    }
+    Some(result)
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn reply(mut stream: &TcpStream, title: &str, msg: &str) {
+    let (title, msg) = (html_escape(title), html_escape(msg));
+    let body = format!(
+        "<!doctype html><meta charset=utf-8><title>{title}</title>\
+         <body style=\"margin:0;height:100vh;display:grid;place-items:center;\
+         font:600 16px system-ui;background:#14101f;color:#e7e2f5\">\
+         <div style=\"text-align:center\"><div style=\"font-size:34px\">{title}</div>\
+         <div style=\"opacity:.7;margin-top:8px\">{msg}</div></div>"
+    );
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(resp.as_bytes());
+    let _ = stream.flush();
+}
+
+fn exchange_code(code: &str, verifier: &str, redirect_uri: &str) -> Result<String, String> {
+    let resp = ureq::post("https://oauth2.googleapis.com/token").send_form(&[
+        ("code", code),
+        ("client_id", GOOGLE_CLIENT_ID),
+        ("client_secret", GOOGLE_CLIENT_SECRET),
+        ("redirect_uri", redirect_uri),
+        ("grant_type", "authorization_code"),
+        ("code_verifier", verifier),
+    ]);
+    let body = match resp {
+        Ok(r) => r.into_string().map_err(|e| e.to_string())?,
+        Err(ureq::Error::Status(_, r)) => {
+            let b = r.into_string().unwrap_or_default();
+            return Err(format!("Token exchange rejected: {b}"));
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    v.get("id_token")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Response had no id_token".to_string())
+}
+
+fn run_google_sign_in(app: &tauri::AppHandle) -> Result<String, String> {
+    if GOOGLE_CLIENT_ID.is_empty() || GOOGLE_CLIENT_SECRET.is_empty() {
+        return Err("Google sign-in is not configured (missing .env at build time).".into());
+    }
+    let verifier = random_b64url(32);
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let state = random_b64url(16);
+
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let redirect_uri = format!("http://127.0.0.1:{port}");
+
+    let auth_url = format!(
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&code_challenge={}&code_challenge_method=S256&state={}&prompt=select_account",
+        GOOGLE_CLIENT_ID,
+        percent_encode(&redirect_uri),
+        challenge,
+        state,
+    );
+    app.opener()
+        .open_url(auth_url, None::<&str>)
+        .map_err(|e| e.to_string())?;
+
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(AUTH_TIMEOUT_SECS);
+    let code = loop {
+        if Instant::now() >= deadline {
+            return Err("Sign-in timed out.".into());
+        }
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                // Bound the read so a browser preconnect/speculative socket that
+                // opens but never sends can't wedge us; a timed-out read returns
+                // Err → handle_oauth_conn yields None → the outer deadline applies.
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(4000)));
+                if let Some(res) = handle_oauth_conn(stream, &state) {
+                    break res?;
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(120));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    exchange_code(&code, &verifier, &redirect_uri)
+}
+
+fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// Run the loopback Google OAuth flow and return the Google `id_token`, which the
+/// frontend hands to Supabase `signInWithIdToken`. Blocking work runs off-thread.
+#[tauri::command]
+async fn google_sign_in(app: tauri::AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || run_google_sign_in(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -94,7 +300,8 @@ pub fn run() {
             load_game,
             save_game,
             set_always_on_top,
-            set_over_fullscreen
+            set_over_fullscreen,
+            google_sign_in
         ])
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {

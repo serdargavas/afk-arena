@@ -12,11 +12,13 @@ export interface MetaNodeDef {
   costGrowth: number;
   // effect per level (interpreted in stats.ts / progression.ts):
   attackPct?: number;
+  attackSpeedPct?: number;
   maxHpPct?: number;
   goldPct?: number;
   essencePct?: number;
   critChance?: number;
   armor?: number;
+  lifesteal?: number;
   startStage?: number; // +N starting stage per level
   extraRelicChoice?: number; // +N relic options offered per level
   unlockClass?: ClassId; // 1-level nodes that unlock a class
@@ -31,8 +33,8 @@ export const META_NODES: MetaNodeDef[] = [
   { id: 'bulwark', name: 'Bulwark', icon: '🧱', desc: '+2 starting armor / level', maxLevel: 12, baseCost: 4, costGrowth: 1.4, armor: 2 },
   { id: 'headstart', name: 'Head Start', icon: '⏩', desc: 'Begin each run 1 stage higher / level', maxLevel: 20, baseCost: 6, costGrowth: 1.3, startStage: 1 },
   { id: 'foresight', name: 'Foresight', icon: '🔎', desc: '+1 relic option offered / level', maxLevel: 2, baseCost: 25, costGrowth: 4, extraRelicChoice: 1 },
-  { id: 'unlock_mage', name: 'Awaken Mage', icon: '🔮', desc: 'Unlock the Mage class', maxLevel: 1, baseCost: 15, costGrowth: 1, unlockClass: 'mage' },
-  { id: 'unlock_ranger', name: 'Awaken Ranger', icon: '🏹', desc: 'Unlock the Ranger class', maxLevel: 1, baseCost: 15, costGrowth: 1, unlockClass: 'ranger' },
+  { id: 'ferocity', name: 'Ferocity', icon: '⚡', desc: '+4% starting attack speed / level', maxLevel: 15, baseCost: 4, costGrowth: 1.4, attackSpeedPct: 0.04 },
+  { id: 'leech', name: 'Leech', icon: '🩸', desc: '+1.5% lifesteal / level', maxLevel: 10, baseCost: 5, costGrowth: 1.45, lifesteal: 0.015 },
 ];
 
 export const META_BY_ID: Record<string, MetaNodeDef> = Object.fromEntries(

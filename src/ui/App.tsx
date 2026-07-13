@@ -5,6 +5,7 @@ import { loadRaw, saveRaw } from '../platform/storage';
 import { createInitialSave, deserialize, serialize, applyOffline } from '../game';
 import { useGameStore } from '../store/gameStore';
 import { setAlwaysOnTop, setOverFullscreen } from '../platform/window';
+import { isTauri } from '../platform/tauri';
 import { TitleBar } from './TitleBar';
 import { Hud } from './Hud';
 import { RunPanel } from './RunPanel';
@@ -14,6 +15,11 @@ import { DeathScreen } from './DeathScreen';
 import { RebirthScreen } from './RebirthScreen';
 import { Settings } from './Settings';
 import { OfflineModal } from './OfflineModal';
+import { Leaderboard } from './Leaderboard';
+import { ActionBar, type Panel, type SheetTab } from './ActionBar';
+import { Scene3D } from '../render3d/Scene3D';
+import { SceneOverlays } from './SceneOverlays';
+import { leaderboardEnabled, submitScore } from '../net/leaderboard';
 
 const OFFLINE_MODAL_MIN_SECONDS = 30;
 
@@ -26,10 +32,24 @@ function newPlayerId(): string {
 }
 
 export default function App() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const loopRef = useRef<GameLoop | null>(null);
   const phase = useGameStore((s) => s.phase);
-  const [menu, setMenu] = useState<null | 'meta' | 'settings'>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const charTab: SheetTab | null =
+    panel === 'meta' || panel === 'skills' || panel === 'gear' ? panel : null;
+
+  // Auto-sync the run's result to the leaderboard when it ends (no-op if signed out).
+  useEffect(() => {
+    if (phase !== 'dead' || !leaderboardEnabled()) return;
+    const s = loopRef.current?.save;
+    if (!s) return;
+    void submitScore({
+      name: s.meta.playerName,
+      bestStage: s.meta.bestStage,
+      bestEssence: s.meta.bestEssence,
+      classId: s.meta.selectedClass,
+    }).catch(() => {});
+  }, [phase]);
 
   useEffect(() => {
     let disposed = false;
@@ -48,24 +68,26 @@ export default function App() {
         useGameStore.getState().setOffline(report);
       }
 
-      if (disposed || !canvasRef.current) return;
+      if (disposed) return;
 
-      const loop = new GameLoop(save, canvasRef.current);
+      const loop = new GameLoop(save);
       loopRef.current = loop;
       loop.start();
 
-      const win = getCurrentWindow();
-      if (save.meta.settings.alwaysOnTop) await setAlwaysOnTop(true);
-      if (save.meta.settings.overFullscreen) await setOverFullscreen(true);
+      if (isTauri()) {
+        const win = getCurrentWindow();
+        if (save.meta.settings.alwaysOnTop) await setAlwaysOnTop(true);
+        if (save.meta.settings.overFullscreen) await setOverFullscreen(true);
 
-      unlisten.push(await win.onFocusChanged(({ payload: focused }) => loop.setFocused(focused)));
-      unlisten.push(
-        await win.onCloseRequested(async (e) => {
-          e.preventDefault();
-          await saveRaw(serialize(loop.save));
-          await win.destroy();
-        }),
-      );
+        unlisten.push(await win.onFocusChanged(({ payload: focused }) => loop.setFocused(focused)));
+        unlisten.push(
+          await win.onCloseRequested(async (e) => {
+            e.preventDefault();
+            await saveRaw(serialize(loop.save));
+            await win.destroy();
+          }),
+        );
+      }
     })();
 
     return () => {
@@ -81,15 +103,18 @@ export default function App() {
 
   return (
     <div className="app">
-      <TitleBar onMenu={() => setMenu('meta')} onSettings={() => setMenu('settings')} />
-      <canvas ref={canvasRef} className="scene" />
+      <TitleBar />
+      <Scene3D />
+      <SceneOverlays />
       <Hud />
+      <ActionBar onOpen={setPanel} />
       <RunPanel />
       {phase === 'relic' && <RelicChoice />}
       {phase === 'event' && <EventModal />}
-      {phase === 'dead' && <DeathScreen onMeta={() => setMenu('meta')} />}
-      {menu === 'meta' && <RebirthScreen onClose={() => setMenu(null)} />}
-      {menu === 'settings' && <Settings onClose={() => setMenu(null)} />}
+      {phase === 'dead' && <DeathScreen onMeta={() => setPanel('meta')} />}
+      {charTab && <RebirthScreen initialTab={charTab} onClose={() => setPanel(null)} />}
+      {panel === 'settings' && <Settings onClose={() => setPanel(null)} />}
+      {panel === 'leaderboard' && <Leaderboard onClose={() => setPanel(null)} />}
       <OfflineModal />
     </div>
   );

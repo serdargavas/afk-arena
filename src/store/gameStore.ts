@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameSave, UISnapshot, OfflineReport, ClassId, ShopKey } from '../game/types';
+import type { GameSave, UISnapshot, OfflineReport, ClassId, ShopKey, SlotId } from '../game/types';
 
 /** Imperative actions the UI invokes; the loop wires the real implementations. */
 export interface GameActions {
@@ -9,9 +9,15 @@ export interface GameActions {
   buyNode: (id: string) => void;
   buyShop: (key: ShopKey) => void;
   selectClass: (id: ClassId) => void;
+  allocateSkill: (id: string) => void;
+  respecSkills: () => void;
+  equipItem: (uid: number) => void;
+  unequipItem: (slot: SlotId) => void;
   setAlwaysOnTop: (v: boolean) => void;
   setOverFullscreen: (v: boolean) => void;
   setAutoRelic: (v: boolean) => void;
+  setAutoBuy: (v: boolean) => void;
+  setGameSpeed: (n: number) => void;
   setPlayerName: (name: string) => void;
 }
 
@@ -22,14 +28,21 @@ const NOOP: GameActions = {
   buyNode: () => {},
   buyShop: () => {},
   selectClass: () => {},
+  allocateSkill: () => {},
+  respecSkills: () => {},
+  equipItem: () => {},
+  unequipItem: () => {},
   setAlwaysOnTop: () => {},
   setOverFullscreen: () => {},
   setAutoRelic: () => {},
+  setAutoBuy: () => {},
+  setGameSpeed: () => {},
   setPlayerName: () => {},
 };
 
 const INITIAL: UISnapshot = {
   phase: 'fighting',
+  heroClass: 'warrior',
   stage: 1,
   waveInStage: 0,
   biomeName: '',
@@ -54,9 +67,13 @@ interface GameStore extends UISnapshot {
   screenVersion: number;
   save: GameSave | null;
   actions: GameActions;
+  // AFK: while the window is unfocused the scene freezes and we tally gold earned.
+  afk: boolean;
+  afkGold: number;
   applySnapshot: (s: UISnapshot) => void;
   bumpScreen: () => void;
   setOffline: (r: OfflineReport | null) => void;
+  setAfkState: (afk: boolean, afkGold: number) => void;
   attach: (save: GameSave, actions: GameActions) => void;
 }
 
@@ -66,9 +83,12 @@ export const useGameStore = create<GameStore>((set) => ({
   screenVersion: 0,
   save: null,
   actions: NOOP,
+  afk: false,
+  afkGold: 0,
   applySnapshot: (s) => set(s),
   bumpScreen: () => set((st) => ({ screenVersion: st.screenVersion + 1 })),
   setOffline: (r) => set({ offline: r }),
+  setAfkState: (afk, afkGold) => set({ afk, afkGold }),
   attach: (save, actions) => set({ save, actions }),
 }));
 

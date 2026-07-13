@@ -1,8 +1,10 @@
-import type { GameSave, Stats, RelicInstance } from './types';
+import type { GameSave, Stats, RelicInstance, RelicMods } from './types';
+import { SLOT_IDS } from './types';
 import { RARITY_MULT, SHOP_ATTACK_PCT, SHOP_HP_PCT, SHOP_SPEED_PCT } from './constants';
 import { CLASSES } from './content/classes';
 import { relicDef } from './content/relics';
 import { META_NODES } from './content/metaNodes';
+import { SKILL_BY_ID } from './content/skills';
 
 interface Accum {
   attackPct: number;
@@ -34,11 +36,8 @@ function emptyAccum(): Accum {
   };
 }
 
-function addRelic(acc: Accum, relic: RelicInstance): void {
-  const def = relicDef(relic.id);
-  if (!def) return;
-  const k = RARITY_MULT[relic.rarity] ?? 1;
-  const m = def.mods;
+/** Fold a set of relic-style mods into the accumulator, scaled by k. */
+function addMods(acc: Accum, m: RelicMods, k: number): void {
   acc.attackPct += (m.attackPct ?? 0) * k;
   acc.attackSpeedPct += (m.attackSpeedPct ?? 0) * k;
   acc.maxHpPct += (m.maxHpPct ?? 0) * k;
@@ -52,15 +51,41 @@ function addRelic(acc: Accum, relic: RelicInstance): void {
   acc.thorns += (m.thorns ?? 0) * k;
 }
 
+function addRelic(acc: Accum, relic: RelicInstance): void {
+  const def = relicDef(relic.id);
+  if (!def) return;
+  addMods(acc, def.mods, RARITY_MULT[relic.rarity] ?? 1);
+}
+
+function addSkills(acc: Accum, skills: Record<string, number>): void {
+  for (const id in skills) {
+    if (!skills[id]) continue;
+    const node = SKILL_BY_ID[id];
+    if (node) addMods(acc, node.mods, 1);
+  }
+}
+
+function addItems(acc: Accum, save: GameSave): void {
+  const { equipped, inventory } = save.meta;
+  for (const slot of SLOT_IDS) {
+    const uid = equipped[slot];
+    if (uid == null) continue;
+    const item = inventory.find((it) => it.uid === uid);
+    if (item) addMods(acc, item.mods, 1);
+  }
+}
+
 function addMeta(acc: Accum, nodes: Record<string, number>): void {
   for (const def of META_NODES) {
     const lvl = nodes[def.id] ?? 0;
     if (lvl <= 0) continue;
     acc.attackPct += (def.attackPct ?? 0) * lvl;
+    acc.attackSpeedPct += (def.attackSpeedPct ?? 0) * lvl;
     acc.maxHpPct += (def.maxHpPct ?? 0) * lvl;
     acc.goldMultPct += (def.goldPct ?? 0) * lvl;
     acc.critChance += (def.critChance ?? 0) * lvl;
     acc.armor += (def.armor ?? 0) * lvl;
+    acc.lifesteal += (def.lifesteal ?? 0) * lvl;
   }
 }
 
@@ -74,6 +99,8 @@ export function computeStats(save: GameSave): Stats {
   const base = cls.base;
   const acc = emptyAccum();
   addMeta(acc, save.meta.nodes);
+  addSkills(acc, save.meta.skills);
+  addItems(acc, save);
   for (const r of run.relics) addRelic(acc, r);
 
   const shop = run.shop;

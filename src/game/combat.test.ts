@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialSave } from './save';
 import { stepSim } from './combat';
-import { pickRelic, rebirth } from './run';
+import { pickRelic, resolveEvent, rebirth } from './run';
 import { buyNode } from './meta';
 
 describe('run setup', () => {
@@ -55,6 +55,62 @@ describe('stepSim', () => {
     expect(a.run.gold).toBe(b.run.gold);
     expect(a.run.stage).toBe(b.run.stage);
     expect(a.rngState).toBe(b.rngState);
+  });
+});
+
+describe('crit tiers + lifesteal', () => {
+  it('crit chance over 100% always crits and the overflow rolls double crits', () => {
+    const s = createInitialSave(0, 7);
+    let crit = 0;
+    let dbl = 0;
+    for (let i = 0; i < 3000 && crit + dbl < 200; i++) {
+      if (s.run.phase === 'relic') { pickRelic(s, 0); continue; }
+      if (s.run.phase === 'event') { resolveEvent(s, 0); continue; }
+      if (s.run.phase === 'dead') break;
+      s.run.stats.critChance = 1.4; // guaranteed crit + 40% double
+      s.run.stats.attack = 9999; // one-shot enemies → lots of hits fast
+      const e = stepSim(s);
+      if (e.hit) {
+        expect(e.hit.crit).toBe(true); // ≥100% ⇒ every hit crits
+        if (e.hit.double) dbl++;
+        else crit++;
+      }
+    }
+    expect(crit).toBeGreaterThan(0);
+    expect(dbl).toBeGreaterThan(0); // the overflow produced double crits
+  });
+
+  it('stays deterministic when crit chance exceeds 100%', () => {
+    const a = createInitialSave(0, 99);
+    const b = createInitialSave(0, 99);
+    for (let i = 0; i < 1500; i++) {
+      a.run.stats.critChance = 1.3;
+      b.run.stats.critChance = 1.3;
+      stepSim(a);
+      stepSim(b);
+    }
+    expect(a.rngState).toBe(b.rngState);
+    expect(a.run.gold).toBe(b.run.gold);
+    expect(a.run.stage).toBe(b.run.stage);
+  });
+
+  it('lifesteal reports the actual clamped heal amount on the hit', () => {
+    const s = createInitialSave(0, 3);
+    let healed: { heal: number } | undefined;
+    for (let i = 0; i < 60 && !healed; i++) {
+      if (s.run.phase !== 'fighting') break;
+      s.run.stats.lifesteal = 0.5;
+      s.run.stats.attack = 9999; // one-shot → no retaliation, hero survives
+      s.run.hero.hp = s.run.stats.maxHp / 2; // leave headroom to heal into
+      const before = s.run.hero.hp;
+      const e = stepSim(s);
+      if (e.hit && e.hit.heal > 0) {
+        healed = e.hit;
+        expect(e.hit.heal).toBe(s.run.hero.hp - before); // equals real hp gained
+        expect(s.run.hero.hp).toBeLessThanOrEqual(s.run.stats.maxHp); // clamped
+      }
+    }
+    expect(healed).toBeDefined();
   });
 });
 

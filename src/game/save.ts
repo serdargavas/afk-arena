@@ -5,17 +5,27 @@ import { makeEnemy, isFinalWave, isBossStage } from './progression';
 import { relicDef } from './content/relics';
 import { CLASSES } from './content/classes';
 import { META_BY_ID } from './content/metaNodes';
+import { SKILL_BY_ID } from './content/skills';
 import { EVENT_BY_ID } from './content/events';
-import { RARITIES } from './types';
+import { SKILL_POINTS } from './constants';
+import { RARITIES, SLOT_IDS } from './types';
 import type {
   GameSave,
   MetaState,
   RunState,
   EnemyState,
   RelicInstance,
+  ItemInstance,
+  RelicMods,
+  SlotId,
   ClassId,
   RunPhase,
 } from './types';
+
+const MOD_KEYS: (keyof RelicMods)[] = [
+  'attackPct', 'attackSpeedPct', 'maxHpPct', 'critChance', 'critMult',
+  'armor', 'lifesteal', 'dotDps', 'summonPct', 'goldMultPct', 'thorns',
+];
 
 export function createInitialSave(now: number, seed: number = DEFAULT_SEED): GameSave {
   const save: GameSave = {
@@ -26,12 +36,16 @@ export function createInitialSave(now: number, seed: number = DEFAULT_SEED): Gam
     meta: {
       essence: 0,
       nodes: {},
-      unlockedClasses: ['warrior'],
+      skills: {},
+      inventory: [],
+      equipped: { weapon: null, armor: null, ring: null, amulet: null },
+      itemSeq: 1,
+      unlockedClasses: ['warrior', 'mage', 'ranger'],
       selectedClass: 'warrior',
       bestStage: 1,
       bestEssence: 0,
       totalRebirths: 0,
-      settings: { alwaysOnTop: false, overFullscreen: false, autoRelic: false },
+      settings: { alwaysOnTop: false, overFullscreen: false, autoRelic: false, autoBuy: false, gameSpeed: 1 },
       playerId: '',
       playerName: '',
     },
@@ -93,6 +107,32 @@ function sanitize(d: Record<string, unknown>, now: number): GameSave {
   return save;
 }
 
+function sanitizeMods(v: unknown): RelicMods {
+  const raw = (v ?? {}) as Record<string, unknown>;
+  const mods: RelicMods = {};
+  for (const k of MOD_KEYS) {
+    const val = raw[k];
+    if (typeof val === 'number' && Number.isFinite(val)) mods[k] = val;
+  }
+  return mods;
+}
+
+function sanitizeInventory(v: unknown): ItemInstance[] {
+  if (!Array.isArray(v)) return [];
+  const out: ItemInstance[] = [];
+  const seen = new Set<number>();
+  for (const x of v) {
+    const o = x as Partial<ItemInstance>;
+    const uid = o?.uid;
+    if (typeof uid !== 'number' || !Number.isFinite(uid) || seen.has(uid)) continue;
+    if (!SLOT_IDS.includes(o.slot as SlotId)) continue;
+    if (!RARITIES.includes(o.rarity as never)) continue;
+    seen.add(uid);
+    out.push({ uid, slot: o.slot as SlotId, rarity: o.rarity as ItemInstance['rarity'], mods: sanitizeMods(o.mods) });
+  }
+  return out;
+}
+
 function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
   const nodes: Record<string, number> = {};
   const rawNodes = (m?.nodes ?? {}) as Record<string, unknown>;
@@ -102,10 +142,25 @@ function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
       nodes[k] = clamp(Math.floor(v as number), 0, def.maxLevel);
     }
   }
-  const unlocked = Array.isArray(m?.unlockedClasses)
-    ? (m!.unlockedClasses as unknown[]).filter((c): c is ClassId => typeof c === 'string' && c in CLASSES)
-    : [];
-  if (!unlocked.includes('warrior')) unlocked.push('warrior');
+  const skills: Record<string, number> = {};
+  const rawSkills = (m?.skills ?? {}) as Record<string, unknown>;
+  for (const k of Object.keys(rawSkills)) {
+    if (SKILL_BY_ID[k] && rawSkills[k] && Object.keys(skills).length < SKILL_POINTS) skills[k] = 1;
+  }
+  const inventory = sanitizeInventory(m?.inventory);
+  const owned = new Set(inventory.map((it) => it.uid));
+  const rawEq = (m?.equipped ?? {}) as Record<string, unknown>;
+  const equipped = { weapon: null, armor: null, ring: null, amulet: null } as MetaState['equipped'];
+  for (const slot of SLOT_IDS) {
+    const uid = rawEq[slot];
+    if (typeof uid === 'number' && owned.has(uid) && inventory.find((it) => it.uid === uid)?.slot === slot) {
+      equipped[slot] = uid;
+    }
+  }
+  const maxUid = inventory.reduce((mx, it) => Math.max(mx, it.uid), 0);
+  const itemSeq = Math.max(maxUid + 1, Math.floor(num(m?.itemSeq, 1)));
+  // All classes are available from the start so their differences can be felt.
+  const unlocked: ClassId[] = ['warrior', 'mage', 'ranger'];
   let selected = (typeof m?.selectedClass === 'string' && m.selectedClass in CLASSES
     ? m.selectedClass
     : 'warrior') as ClassId;
@@ -114,6 +169,10 @@ function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
   return {
     essence: Math.max(0, num(m?.essence, 0)),
     nodes,
+    skills,
+    inventory,
+    equipped,
+    itemSeq,
     unlockedClasses: unlocked,
     selectedClass: selected,
     bestStage: Math.max(1, Math.floor(num(m?.bestStage, 1))),
@@ -123,6 +182,8 @@ function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
       alwaysOnTop: !!s.alwaysOnTop,
       overFullscreen: !!s.overFullscreen,
       autoRelic: !!s.autoRelic,
+      autoBuy: !!s.autoBuy,
+      gameSpeed: [1, 2, 3].includes(Number(s.gameSpeed)) ? Number(s.gameSpeed) : 1,
     },
     playerId: typeof m?.playerId === 'string' ? m.playerId : '',
     playerName: typeof m?.playerName === 'string' ? m.playerName : '',
@@ -213,5 +274,6 @@ function sanitizeRun(r: Record<string, unknown> | undefined, save: GameSave): Ru
     eventId,
     bestStageThisRun: Math.max(stage, Math.floor(num(r?.bestStageThisRun, stage))),
     essenceOnDeath: Math.max(0, num(r?.essenceOnDeath, 0)),
+    dropUid: typeof r?.dropUid === 'number' && Number.isFinite(r.dropUid) ? r.dropUid : null,
   };
 }

@@ -5,6 +5,7 @@ import {
   EVENT_CHANCE,
   SHOP_BASE_COST,
   SHOP_COST_GROWTH,
+  MAX_INVENTORY,
 } from './constants';
 import { RARITIES } from './types';
 import type { ShopKey } from './types';
@@ -17,6 +18,7 @@ import {
   isFinalWave,
 } from './progression';
 import { RELICS, relicDef } from './content/relics';
+import { rollItem, itemPower } from './content/items';
 import { EVENTS, EVENT_BY_ID } from './content/events';
 import type { EventCtx } from './content/events';
 import { CLASSES } from './content/classes';
@@ -27,6 +29,12 @@ import type { GameSave, RelicInstance, MetaState, RunState } from './types';
 /** Recompute the cached derived stats from class + meta + relics + levels. */
 export function recompute(save: GameSave): void {
   save.run.stats = computeStats(save);
+}
+
+/** Recompute, then clamp current HP to the new max (e.g. after unequipping +HP). */
+export function recomputeClamp(save: GameSave): void {
+  recompute(save);
+  save.run.hero.hp = Math.min(save.run.hero.hp, save.run.stats.maxHp);
 }
 
 function metaLevel(meta: MetaState, id: string): number {
@@ -89,7 +97,11 @@ export function startRun(save: GameSave): void {
     eventId: null,
     bestStageThisRun: startStage,
     essenceOnDeath: 0,
+    dropUid: null,
   };
+  // Starting a run above stage 1 (via Head Start) hands you one random relic per
+  // skipped stage so you're not thrown in weak — you arrive as if you'd earned them.
+  for (let i = 1; i < startStage; i++) run.relics.push(randomRelic(rng));
   save.run = run;
   save.rngState = rng.state;
   recompute(save);
@@ -173,8 +185,25 @@ export function resolveEvent(save: GameSave, choiceIndex: number): void {
   save.rngState = rng2.state;
 }
 
-/** End the current run: award essence and enter the 'dead' phase. */
-export function die(save: GameSave): void {
+/** Cap the collection at MAX_INVENTORY, always keeping equipped, the strongest
+ *  gear, and the just-dropped item (so its "Loot" line never dangles). */
+function pruneInventory(meta: MetaState, protectUid: number): void {
+  if (meta.inventory.length <= MAX_INVENTORY) return;
+  const keep = new Set<number>([protectUid]);
+  for (const uid of Object.values(meta.equipped)) if (uid != null) keep.add(uid);
+  for (const it of [...meta.inventory].sort((a, b) => itemPower(b) - itemPower(a))) {
+    if (keep.size >= MAX_INVENTORY) break;
+    keep.add(it.uid);
+  }
+  meta.inventory = meta.inventory.filter((it) => keep.has(it.uid));
+}
+
+/**
+ * End the current run: award essence, drop an item, and enter the 'dead' phase.
+ * Takes the caller's `rng` so both death paths (combat + manual rebirth) advance
+ * the RNG through the same single stream; the caller owns save.rngState.
+ */
+export function die(save: GameSave, rng: Rng): void {
   const run = save.run;
   run.phase = 'dead';
   run.hero.hp = 0;
@@ -184,13 +213,20 @@ export function die(save: GameSave): void {
   save.meta.bestStage = Math.max(save.meta.bestStage, run.bestStageThisRun);
   save.meta.bestEssence = Math.max(save.meta.bestEssence, save.meta.essence);
   save.meta.totalRebirths += 1;
+  // Reward: a permanent item scaled to how far this run reached.
+  const item = rollItem(rng, run.bestStageThisRun, save.meta.itemSeq++);
+  save.meta.inventory.push(item);
+  run.dropUid = item.uid;
+  pruneInventory(save.meta, item.uid);
 }
 
 /** Manual prestige: bank essence for current progress, then start a fresh run. */
 export function rebirth(save: GameSave): void {
   if (save.run.phase !== 'dead') {
     save.run.bestStageThisRun = Math.max(save.run.bestStageThisRun, save.run.stage);
-    die(save);
+    const rng = new Rng(save.rngState);
+    die(save, rng);
+    save.rngState = rng.state;
   }
   startRun(save);
 }

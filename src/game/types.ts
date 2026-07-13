@@ -9,6 +9,17 @@ export type ClassId = 'warrior' | 'mage' | 'ranger';
 
 export type EnemyKind = 'normal' | 'elite' | 'boss';
 
+export type SlotId = 'weapon' | 'armor' | 'ring' | 'amulet';
+export const SLOT_IDS: SlotId[] = ['weapon', 'armor', 'ring', 'amulet'];
+
+/** A permanent piece of gear. `mods` are already rarity-scaled at drop time. */
+export interface ItemInstance {
+  uid: number;
+  slot: SlotId;
+  rarity: Rarity;
+  mods: RelicMods;
+}
+
 export type RunPhase = 'fighting' | 'relic' | 'event' | 'dead';
 
 /** Derived combat profile — recomputed only when relics/level/meta/class change. */
@@ -97,17 +108,24 @@ export interface RunState {
   eventId: string | null; // pending event
   bestStageThisRun: number;
   essenceOnDeath: number; // essence awarded when this run ended (for the death screen)
+  dropUid: number | null; // item uid dropped on death (shown on the death screen)
 }
 
 export interface Settings {
   alwaysOnTop: boolean;
   overFullscreen: boolean; // visible on all Spaces / above other fullscreen apps
-  autoRelic: boolean; // auto-pick a relic 2s after the offer appears
+  autoRelic: boolean; // auto-pick a relic after AUTO_RELIC_DELAY_MS (see constants)
+  autoBuy: boolean; // auto-spend gold on shop upgrades as it comes in
+  gameSpeed: number; // sim speed multiplier: 1, 2, or 3
 }
 
 export interface MetaState {
   essence: number;
   nodes: Record<string, number>; // metaNodeId -> purchased level
+  skills: Record<string, number>; // skillNodeId -> 1 when allocated (cap SKILL_POINTS)
+  inventory: ItemInstance[]; // permanent gear collected from drops
+  equipped: Record<SlotId, number | null>; // slot -> equipped item uid
+  itemSeq: number; // monotonic source of item uids
   unlockedClasses: ClassId[];
   selectedClass: ClassId;
   bestStage: number;
@@ -131,6 +149,7 @@ export interface GameSave {
 /** Lightweight, React-facing view pushed into the store (~4x/sec). */
 export interface UISnapshot {
   phase: RunPhase;
+  heroClass: ClassId;
   stage: number;
   waveInStage: number;
   biomeName: string;

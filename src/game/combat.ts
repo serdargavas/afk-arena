@@ -5,7 +5,7 @@ import type { GameSave } from './types';
 
 /** Render-relevant things that happened during a tick (drive particles/juice). */
 export interface TickEvents {
-  hit?: { damage: number; crit: boolean };
+  hit?: { damage: number; crit: boolean; double: boolean; heal: number };
   hurt?: { damage: number };
   kill?: { gold: number };
   stageCleared?: boolean;
@@ -44,12 +44,27 @@ function stepFighting(save: GameSave, rng: Rng): TickEvents {
   let atk = 0;
   while (hero.cooldown <= 0 && enemy.hp > 0 && atk < MAX_ATTACKS_PER_TICK) {
     atk++;
-    const crit = rng.next() < s.critChance;
-    const dmg = Math.max(1, Math.round(crit ? s.attack * s.critMult : s.attack));
+    // Crit chance may exceed 100%: the whole part guarantees a crit, and the
+    // overflow (e.g. 1.3 → 0.30) is the chance to upgrade it into a double crit.
+    let crit: boolean;
+    let dbl = false;
+    if (s.critChance >= 1) {
+      crit = true;
+      dbl = rng.next() < s.critChance - 1;
+    } else {
+      crit = rng.next() < s.critChance;
+    }
+    const mult = dbl ? s.critMult * 2 : crit ? s.critMult : 1;
+    const dmg = Math.max(1, Math.round(s.attack * mult));
     enemy.hp -= dmg;
     enemy.flash = 0.12;
-    if (s.lifesteal > 0) hero.hp = Math.min(s.maxHp, hero.hp + dmg * s.lifesteal);
-    events.hit = { damage: dmg, crit };
+    let heal = 0;
+    if (s.lifesteal > 0) {
+      const before = hero.hp;
+      hero.hp = Math.min(s.maxHp, hero.hp + dmg * s.lifesteal);
+      heal = hero.hp - before;
+    }
+    events.hit = { damage: dmg, crit, double: dbl, heal };
     hero.cooldown += 1 / s.attackSpeed;
   }
 
@@ -76,7 +91,7 @@ function stepFighting(save: GameSave, rng: Rng): TickEvents {
     if (hero.hp <= 0) {
       hero.hp = 0;
       events.death = true;
-      die(save);
+      die(save, rng);
       break;
     }
   }

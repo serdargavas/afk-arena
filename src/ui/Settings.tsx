@@ -39,10 +39,29 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           <div className="section-label">Gameplay</div>
           <Toggle
-            label="Auto-pick relics & events (2s)"
+            label="Auto-pick relics & events (3s)"
             on={st.autoRelic}
             onChange={(v) => a.setAutoRelic(v)}
           />
+          <Toggle
+            label="Auto-spend gold on upgrades"
+            on={st.autoBuy}
+            onChange={(v) => a.setAutoBuy(v)}
+          />
+          <div className="field">
+            <span>Game speed</span>
+            <div className="speed-seg">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  className={`speed-btn ${st.gameSpeed === n ? 'sel' : ''}`}
+                  onClick={() => a.setGameSpeed(n)}
+                >
+                  {n}×
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="section-label">Leaderboard</div>
           <label className="field">

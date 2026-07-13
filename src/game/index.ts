@@ -17,3 +17,6 @@ export { META_NODES, META_BY_ID, nodeCost } from './content/metaNodes';
 export type { MetaNodeDef } from './content/metaNodes';
 export { EVENTS, EVENT_BY_ID } from './content/events';
 export type { EventDef } from './content/events';
+export { SKILL_NODES, SKILL_BY_ID } from './content/skills';
+export type { SkillNode } from './content/skills';
+export { SLOT_DEFS, itemName, itemPower } from './content/items';

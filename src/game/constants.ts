@@ -17,7 +17,7 @@ export const MAX_OFFLINE_ITERS = 200_000;
 // --- Cadences ---
 export const STORE_PUSH_INTERVAL_MS = 250; // HUD refresh (~4/sec)
 export const AUTOSAVE_INTERVAL_MS = 10_000;
-export const UNFOCUSED_FRAME_INTERVAL_MS = 200; // ~5fps when blurred
+export const UNFOCUSED_FRAME_INTERVAL_MS = 100; // ~10fps when blurred (sim keeps running)
 
 // --- Progression ---
 export const STAGE_KILLS = 8; // enemies to clear a stage (last one is elite/boss)
@@ -61,7 +61,14 @@ export const SHOP_BASE_COST: Record<'attack' | 'hp' | 'speed', number> = {
 export const SHOP_COST_GROWTH = 1.5;
 
 // --- Auto-relic convenience ---
-export const AUTO_RELIC_DELAY_MS = 2000;
+export const AUTO_RELIC_DELAY_MS = 3000;
+
+// --- Skill tree (PoE-style loadout) ---
+export const SKILL_POINTS = 10; // 30 nodes exist; you may allocate only this many
+
+// --- Items / equipment ---
+export const ITEM_TIER_PCT = 0.015; // per best-stage magnitude bump on rolled gear
+export const MAX_INVENTORY = 40; // keep only the best N items (avoid unbounded growth)
 
 // --- Rarity ---
 export const RARITY_MULT: Record<Rarity, number> = {
