@@ -1,0 +1,191 @@
+:root {
+  --panel: #1a1330;
+  --panel-2: #241a3d;
+  --edge: #3a2c5e;
+  --text: #e8e2ff;
+  --muted: #9a8fc4;
+  --gold: #ffd93d;
+  --accent: #63d3ff;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+/* Transparent page so the frameless window reads as a floating rounded widget. */
+body {
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+.app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  color: var(--text);
+}
+
+/* --- Title bar (drag region) --- */
+.titlebar {
+  height: 26px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 10px;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border-bottom: 1px solid var(--edge);
+}
+/* children non-interactive so drag-region target is always the bar itself */
+.titlebar > span {
+  pointer-events: none;
+}
+.tb-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text);
+}
+.tb-gold {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.tb-spacer {
+  flex: 1;
+}
+.tb-btn {
+  pointer-events: auto;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tb-btn:hover {
+  background: var(--edge);
+  color: var(--text);
+}
+.tb-btn.on {
+  color: var(--gold);
+  background: rgba(255, 217, 61, 0.15);
+}
+
+/* --- Battle scene --- */
+.scene {
+  flex: 1 1 auto;
+  display: block;
+  width: 100%;
+  min-height: 0;
+  image-rendering: pixelated;
+}
+
+/* --- Bottom HUD strip --- */
+.hud {
+  height: 32px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  background: linear-gradient(0deg, var(--panel-2), var(--panel));
+  border-top: 1px solid var(--edge);
+}
+.hud-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+.hud-cell + .hud-cell {
+  border-left: 1px solid var(--edge);
+}
+.hud-k {
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.hud-v {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* --- Offline modal --- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 6, 20, 0.66);
+  border-radius: 12px;
+  z-index: 10;
+}
+.modal {
+  width: 74%;
+  padding: 14px 12px;
+  text-align: center;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.modal-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.modal-row {
+  font-size: 11px;
+  color: var(--text);
+  margin: 2px 0;
+}
+.modal-row.gold {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--gold);
+  margin: 6px 0;
+}
+.modal-row.sub {
+  color: var(--muted);
+}
+.modal-btn {
+  margin-top: 10px;
+  padding: 6px 18px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a1330;
+  background: var(--gold);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.modal-btn:hover {
+  filter: brightness(1.08);
+}
