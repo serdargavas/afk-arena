@@ -91,6 +91,6 @@ export const ESSENCE_BASE = 0.6;
 export const ESSENCE_STAGE_POW = 1.5;
 
 // --- Misc ---
-export const RELIC_OFFER_SIZE = 3;
+export const RELIC_EVERY_STAGES = 3; // a mystery box drops on every Nth stage clear
 export const SAVE_VERSION = 2;
 export const DEFAULT_SEED = 0x9e3779b9;

@@ -8,7 +8,7 @@ const BUTTONS: { panel: Panel; label: string; Icon: (p: { size?: number }) => Re
   { panel: 'skills', label: 'Skills', Icon: IconSkills },
   { panel: 'gear', label: 'Gear', Icon: IconGear },
   { panel: 'leaderboard', label: 'Ranks', Icon: IconTrophy },
-  { panel: 'settings', label: 'Forge', Icon: IconSettings },
+  { panel: 'settings', label: 'Settings', Icon: IconSettings },
 ];
 
 // In-game armored toolbar. Each button opens the character sheet on its tab (or

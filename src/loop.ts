@@ -170,19 +170,28 @@ export class GameLoop {
       this.acc = 0;
     }
 
-    // Auto-pick: after AUTO_RELIC_DELAY_MS, auto-resolve relic offers AND events.
+    // Auto-resolve choices. While AFK or at 2×/3× speed, choice screens must
+    // never appear — resolve instantly. Otherwise the opt-in auto-pick setting
+    // resolves them after AUTO_RELIC_DELAY_MS.
     const p = this.save.run.phase;
-    if ((p === 'relic' || p === 'event') && this.save.meta.settings.autoRelic) {
-      if (this.relicSince === 0) this.relicSince = now;
-      else if (now - this.relicSince >= AUTO_RELIC_DELAY_MS) {
+    const instant = this.afk || (this.save.meta.settings.gameSpeed || 1) > 1;
+    if (p === 'relic' || p === 'event') {
+      if (instant) {
         this.relicSince = 0;
-        if (this.save.run.phase === 'relic') {
-          this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
-        } else {
-          this.act(() => resolveEvent(this.save, 0));
+        if (p === 'relic') this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
+        else this.act(() => resolveEvent(this.save, 0));
+      } else if (this.save.meta.settings.autoRelic) {
+        if (this.relicSince === 0) this.relicSince = now;
+        else if (now - this.relicSince >= AUTO_RELIC_DELAY_MS) {
+          this.relicSince = 0;
+          if (this.save.run.phase === 'relic') {
+            this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
+          } else {
+            this.act(() => resolveEvent(this.save, 0));
+          }
         }
       }
-    } else if (p !== 'relic' && p !== 'event') {
+    } else {
       this.relicSince = 0;
     }
 

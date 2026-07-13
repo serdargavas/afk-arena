@@ -144,8 +144,19 @@ function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
   }
   const skills: Record<string, number> = {};
   const rawSkills = (m?.skills ?? {}) as Record<string, unknown>;
-  for (const k of Object.keys(rawSkills)) {
-    if (SKILL_BY_ID[k] && rawSkills[k] && Object.keys(skills).length < SKILL_POINTS) skills[k] = 1;
+  // Chains must stay rooted (prereq allocated), so admit nodes centre-outward
+  // until stable — drops orphans left over from pre-tree saves.
+  let grew = true;
+  while (grew && Object.keys(skills).length < SKILL_POINTS) {
+    grew = false;
+    for (const k of Object.keys(rawSkills)) {
+      const def = SKILL_BY_ID[k];
+      if (!def || !rawSkills[k] || skills[k]) continue;
+      if (def.prereq && !skills[def.prereq]) continue;
+      if (Object.keys(skills).length >= SKILL_POINTS) break;
+      skills[k] = 1;
+      grew = true;
+    }
   }
   const inventory = sanitizeInventory(m?.inventory);
   const owned = new Set(inventory.map((it) => it.uid));

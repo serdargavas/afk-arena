@@ -198,37 +198,6 @@ body {
   background: var(--panel-2);
 }
 
-/* --- HUD --- */
-.hud {
-  height: 32px;
-  flex: 0 0 auto;
-  display: flex;
-  background: linear-gradient(0deg, var(--panel-2), var(--panel));
-  border-top: 1px solid var(--edge);
-  z-index: 2;
-}
-.hud-cell {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  overflow: hidden;
-}
-.hud-cell + .hud-cell {
-  border-left: 1px solid var(--edge);
-}
-.hud-k {
-  font-size: 7px;
-  letter-spacing: 1px;
-  color: var(--muted);
-}
-.hud-v {
-  font-size: 13px;
-  font-weight: 700;
-}
-
 /* --- Modals --- */
 .modal-backdrop {
   position: absolute;
@@ -768,44 +737,78 @@ body {
   opacity: 0.4;
   cursor: default;
 }
-.skill-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
+.skill-tree {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-top: 2px;
 }
-.skill {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 5px 6px;
-  background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
-  color: var(--text);
-  text-align: left;
+.tree-ring {
+  fill: none;
+  stroke: var(--edge);
+  stroke-opacity: 0.35;
+  stroke-dasharray: 3 5;
+}
+.tree-edge {
+  stroke: var(--edge);
+  stroke-width: 2;
+}
+.tree-edge.lit {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 3px var(--accent));
+}
+.tree-start {
+  fill: #241d46;
+  stroke: var(--gold);
+  stroke-width: 1.5;
+}
+.tree-start-ico,
+.tree-node-ico {
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
+}
+.tree-node {
   cursor: pointer;
 }
-.skill.on {
-  border-color: var(--accent);
-  background: var(--panel-2);
-  box-shadow: 0 0 0 1px var(--accent) inset;
+.tree-node-ring {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5;
 }
-.skill.locked {
-  opacity: 0.4;
+.tree-node-fill {
+  fill: #17132c;
+}
+.tree-node.on .tree-node-ring {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px var(--accent));
+}
+.tree-node.on .tree-node-fill {
+  fill: #2a2258;
+}
+.tree-node.open .tree-node-ring {
+  stroke: #8b84c0;
+  animation: node-breathe 1.6s ease-in-out infinite;
+}
+.tree-node.locked {
+  cursor: default;
+  opacity: 0.38;
+}
+.tree-node.held {
   cursor: default;
 }
-.skill-ico {
-  font-size: 13px;
+@keyframes node-breathe {
+  0%, 100% { stroke-opacity: 0.5; }
+  50% { stroke-opacity: 1; }
 }
-.skill-name {
-  font-size: 9.5px;
-  font-weight: 700;
-}
-.skill-desc {
+.tree-hint {
+  margin-top: 2px;
   font-size: 8px;
+  text-align: center;
   color: var(--muted);
-  line-height: 1.2;
 }
 
 /* --- Equipment --- */
@@ -1012,4 +1015,387 @@ body {
   font-weight: 800;
   color: var(--gold);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+/* --- Wave pips inside the stage badge (the old HUD bar's job) --- */
+.wave-dots {
+  display: flex;
+  gap: 3px;
+  margin-top: 3px;
+}
+.wave-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #2c2650;
+  border: 1px solid var(--edge);
+}
+.wave-dot.done {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+.wave-dot.now {
+  background: #ff5d78;
+  border-color: #ff5d78;
+  box-shadow: 0 0 5px #ff5d78aa;
+}
+.wave-dot.end {
+  border-radius: 2px; /* the stage's elite/boss wave reads as a square pip */
+}
+.scene-top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.ess-chip {
+  padding: 2px 9px;
+  border-radius: 8px;
+  background: rgba(10, 8, 24, 0.7);
+  border: 1px solid var(--edge);
+  font-size: 10px;
+  font-weight: 800;
+  color: #c9b3ff;
+}
+
+/* --- AFK dim veil (scene stays softly alive underneath) --- */
+.afk-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 2, 12, 0.58);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* --- Mystery box (stage-clear relic drop) --- */
+.box-backdrop {
+  cursor: pointer;
+}
+.mb-common, .box-reveal.rr-common { --box-glow: #aab3c2; --box-glow-soft: #aab3c255; }
+.mb-uncommon, .box-reveal.rr-uncommon { --box-glow: #4ade80; --box-glow-soft: #4ade8055; }
+.mb-rare, .box-reveal.rr-rare { --box-glow: #60a5fa; --box-glow-soft: #60a5fa55; }
+.mb-epic, .box-reveal.rr-epic { --box-glow: #c084fc; --box-glow-soft: #c084fc55; }
+.mb-legendary, .box-reveal.rr-legendary { --box-glow: #fbbf24; --box-glow-soft: #fbbf2455; }
+
+.mystery-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+/* rotating god-rays behind the chest */
+.box-rays {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  width: 300px;
+  height: 300px;
+  background: repeating-conic-gradient(
+    from 0deg,
+    var(--box-glow-soft) 0deg 8deg,
+    transparent 8deg 26deg
+  );
+  -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 60%);
+  mask-image: radial-gradient(circle, #000 0%, transparent 60%);
+  animation: rays-spin 8s linear infinite;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.mb-legendary .box-rays {
+  opacity: 0.85;
+  animation-duration: 5s;
+}
+@keyframes rays-spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+.box-aura {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  width: 200px;
+  height: 200px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--box-glow) 0%, transparent 58%);
+  opacity: 0.45;
+  filter: blur(3px);
+  animation: aura-pulse 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes aura-pulse {
+  0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.88); }
+  50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.08); }
+}
+
+/* the chest itself — hand-drawn: wood, gold banding, glowing seam, gem lock */
+.chest {
+  position: relative;
+  width: 108px;
+  height: 88px;
+  animation: chest-rattle 0.62s ease-in-out infinite;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.6));
+}
+.mb-epic .chest,
+.mb-legendary .chest {
+  animation-duration: 0.34s; /* higher rarity rattles harder */
+}
+@keyframes chest-rattle {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  15% { transform: rotate(-3deg) translateY(-2px); }
+  30% { transform: rotate(2.5deg); }
+  45% { transform: rotate(-2deg) translateY(-4px); }
+  60% { transform: rotate(3deg) translateY(-1px); }
+  78% { transform: rotate(-1.5deg); }
+}
+.chest-lid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 34px;
+  background: linear-gradient(180deg, #7a5426, #4c3115);
+  border: 2px solid #241505;
+  border-bottom: none;
+  border-radius: 16px 16px 3px 3px;
+  box-shadow: inset 0 3px 6px rgba(255, 255, 255, 0.16), inset 0 -5px 9px rgba(0, 0, 0, 0.4);
+}
+.chest-lid::before,
+.chest-lid::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: 0;
+  width: 13px;
+  background: linear-gradient(180deg, #ffe9a8, #b8862e 70%, #8a611c);
+  border-inline: 1px solid #5d3f10;
+  box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.45);
+}
+.chest-lid::before { left: 15px; border-top-left-radius: 6px; }
+.chest-lid::after { right: 15px; border-top-right-radius: 6px; }
+.chest-base {
+  position: absolute;
+  top: 37px;
+  left: 3px;
+  right: 3px;
+  bottom: 0;
+  background: linear-gradient(180deg, #6b4820, #3c2610 65%, #281607);
+  border: 2px solid #241505;
+  border-radius: 3px 3px 11px 11px;
+  box-shadow: inset 0 5px 7px rgba(0, 0, 0, 0.4), inset 0 -4px 7px rgba(0, 0, 0, 0.55);
+}
+.chest-base::before,
+.chest-base::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: -1px;
+  width: 13px;
+  background: linear-gradient(180deg, #d9ab52, #a1732a 70%, #7d5a1c);
+  border-inline: 1px solid #5d3f10;
+  box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.35);
+}
+.chest-base::before { left: 13px; border-bottom-left-radius: 5px; }
+.chest-base::after { right: 13px; border-bottom-right-radius: 5px; }
+/* light escaping from under the lid — throbs harder as it begs to open */
+.chest-seam {
+  position: absolute;
+  top: 33px;
+  left: 7px;
+  right: 7px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--box-glow);
+  box-shadow: 0 0 12px 3px var(--box-glow);
+  animation: seam-throb 0.9s ease-in-out infinite;
+}
+@keyframes seam-throb {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.chest-lock {
+  position: absolute;
+  top: 25px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 27px;
+  height: 31px;
+  background: linear-gradient(180deg, #ffe9a8, #c29036 75%, #96691f);
+  border: 2px solid #5d3f10;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.55), inset 0 2px 3px rgba(255, 255, 255, 0.5);
+}
+.chest-lock::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--box-glow);
+  box-shadow: 0 0 9px 2px var(--box-glow);
+  animation: seam-throb 0.9s ease-in-out infinite;
+}
+
+/* motes of light drifting up from the chest */
+.box-motes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.box-motes span {
+  position: absolute;
+  bottom: 42%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--box-glow);
+  box-shadow: 0 0 7px var(--box-glow);
+  opacity: 0;
+  animation: mote-rise 2.4s ease-out infinite;
+}
+.box-motes span:nth-child(1) { left: 16%; animation-delay: 0s; }
+.box-motes span:nth-child(2) { left: 30%; animation-delay: 0.9s; transform: scale(0.7); }
+.box-motes span:nth-child(3) { left: 44%; animation-delay: 1.6s; }
+.box-motes span:nth-child(4) { left: 56%; animation-delay: 0.4s; transform: scale(0.8); }
+.box-motes span:nth-child(5) { left: 68%; animation-delay: 1.2s; }
+.box-motes span:nth-child(6) { left: 80%; animation-delay: 2s; transform: scale(0.6); }
+.box-motes span:nth-child(7) { left: 24%; animation-delay: 1.9s; transform: scale(0.55); }
+.box-motes span:nth-child(8) { left: 74%; animation-delay: 0.6s; }
+@keyframes mote-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  12% { opacity: 0.95; }
+  100% { transform: translateY(-95px); opacity: 0; }
+}
+
+.box-label {
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #ffffff, var(--box-glow));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px var(--box-glow-soft));
+}
+.box-tap,
+.reveal-tap {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  animation: tap-blink 1.4s ease-in-out infinite;
+}
+@keyframes tap-blink {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.95; }
+}
+
+/* --- reveal: beam of light + burst + relic card with a shine sweep --- */
+.box-reveal {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.reveal-beam {
+  position: absolute;
+  top: -170px;
+  bottom: -50px;
+  left: 50%;
+  width: 92px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, transparent, var(--box-glow-soft) 30%, var(--box-glow-soft) 62%, transparent);
+  animation: beam-in 0.8s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes beam-in {
+  0% { opacity: 0; transform: translateX(-50%) scaleX(0.2); }
+  35% { opacity: 0.95; }
+  100% { opacity: 0.3; transform: translateX(-50%) scaleX(1); }
+}
+.reveal-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 260px;
+  height: 260px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--box-glow) 0%, transparent 58%);
+  opacity: 0;
+  animation: burst-flash 0.7s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes burst-flash {
+  0% { opacity: 0.95; transform: translate(-50%, -50%) scale(0.25); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
+}
+.reveal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 20px 36px 12px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(31, 25, 56, 0.98), rgba(12, 9, 26, 0.96));
+  border: 1.5px solid var(--box-glow);
+  box-shadow: 0 0 28px var(--box-glow-soft), 0 14px 34px rgba(0, 0, 0, 0.6), inset 0 0 24px rgba(0, 0, 0, 0.45);
+  animation: reveal-pop 0.32s cubic-bezier(0.2, 1.6, 0.4, 1);
+  overflow: hidden;
+}
+.reveal-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -75%;
+  width: 45%;
+  height: 100%;
+  transform: skewX(-22deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  animation: shine-sweep 1s ease-out 0.2s forwards;
+  pointer-events: none;
+}
+@keyframes shine-sweep {
+  to { left: 135%; }
+}
+.reveal-ico {
+  font-size: 52px;
+  filter: drop-shadow(0 0 14px var(--box-glow));
+  animation: ico-pop 0.45s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+@keyframes ico-pop {
+  from { transform: scale(0.2) rotate(-14deg); }
+  to { transform: scale(1) rotate(0deg); }
+}
+.reveal-name {
+  font-size: 16px;
+  font-weight: 800;
+}
+.reveal-desc {
+  font-size: 10.5px;
+  color: var(--text);
+  opacity: 0.85;
+}
+.reveal-tap {
+  margin-top: 4px;
+}
+@keyframes reveal-pop {
+  from { transform: scale(0.55); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* --- Relic collection grouped by rarity --- */
+.relic-group {
+  margin-bottom: 4px;
+}
+.relic-group-label {
+  display: block;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
 }

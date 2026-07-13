@@ -1,5 +1,5 @@
 import { useGameStore } from '../store/gameStore';
-import { shopCost, relicDef } from '../game';
+import { shopCost, relicDef, RARITIES } from '../game';
 import type { ShopKey } from '../game';
 import { formatNum } from './format';
 
@@ -57,18 +57,33 @@ export function RunPanel() {
       </div>
 
       <div className="panel-label">Relics · {relics.length}</div>
-      <div className="relic-grid">
-        {relics.length === 0 && <span className="empty">— none yet —</span>}
-        {relics.map((r, i) => {
-          const def = relicDef(r.id);
-          if (!def) return null;
-          return (
-            <span key={i} className={`relic-chip rr-${r.rarity}`} title={`${def.name} (${r.rarity}) — ${def.desc}`}>
-              {def.icon}
+      {relics.length === 0 && (
+        <div className="relic-grid">
+          <span className="empty">— none yet —</span>
+        </div>
+      )}
+      {[...RARITIES].reverse().map((rarity) => {
+        const group = relics.filter((r) => r.rarity === rarity);
+        if (group.length === 0) return null;
+        return (
+          <div key={rarity} className="relic-group">
+            <span className={`relic-group-label rc-${rarity}`}>
+              {rarity} · {group.length}
             </span>
-          );
-        })}
-      </div>
+            <div className="relic-grid">
+              {group.map((r, i) => {
+                const def = relicDef(r.id);
+                if (!def) return null;
+                return (
+                  <span key={i} className={`relic-chip rr-${r.rarity}`} title={`${def.name} (${r.rarity}) — ${def.desc}`}>
+                    {def.icon}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
 import { combatBus, type HitEvent } from './bus';
+import { UNFOCUSED_FRAME_INTERVAL_MS } from '../game/constants';
 import { formatNum } from '../ui/format';
 import type { ClassId, EnemyKind } from '../game/types';
 
@@ -57,8 +58,9 @@ const COMBO: Strike[] = [
   { wind: 1.35, hitRot: -0.75, lean: 0.2, lunge: 0.6, hop: 0.42, slash: 1.7, slashScale: 1.05 }, // 4 launching uppercut
   { wind: -1.15, hitRot: 1.75, lean: -0.42, lunge: 1.1, hop: 0.72, slash: -0.95, slashScale: 1.6, slam: true }, // 5 sky-fall slam
 ];
-const DUR = 0.46; // full swing (s)
+const DUR = 0.5; // full swing (s)
 const CONTACT = 0.2; // fraction of DUR where the blade lands ('hit' fires at contact)
+const HOLD = 0.14; // hit-stop: fraction of DUR the extended strike pose is held before recovery
 
 // Combo bookkeeping shared by every FX component. Handlers all receive the same
 // event object, so the first one to ask advances the combo and the rest agree —
@@ -138,6 +140,66 @@ function useStreakTex() {
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
     ctx.fillRect(-s / 2, -s / 2, s, s);
+  });
+}
+
+/** Cracked stone arena floor with glowing rune rings — the ground the fighters
+ *  stand on, so they read as planted on a real surface instead of floating. */
+function useGroundTex() {
+  return useRadialTex(512, (ctx, s) => {
+    const cx = s / 2;
+    const cy = s * 0.5;
+    // base stone: warm-lit centre fading to near-black at the edges
+    const base = ctx.createRadialGradient(cx, cy, s * 0.05, cx, cy, s * 0.62);
+    base.addColorStop(0, '#241f38');
+    base.addColorStop(0.5, '#0f0b1e');
+    base.addColorStop(1, '#04030a');
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, s, s);
+    // stone grain: flecks of light and dark, denser toward the lit centre
+    for (let i = 0; i < 1600; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.pow(Math.random(), 0.7) * s * 0.6;
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr * 0.9;
+      const light = Math.random() > 0.5;
+      ctx.fillStyle = light
+        ? `rgba(180,175,205,${Math.random() * 0.05})`
+        : `rgba(0,0,0,${Math.random() * 0.09})`;
+      ctx.beginPath();
+      ctx.arc(x, y, Math.random() * 1.7 + 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // flagstone cracks radiating out of the arena centre
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 2.2;
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2 + 0.35;
+      let x = cx + Math.cos(a) * s * 0.06;
+      let y = cy + Math.sin(a) * s * 0.06;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      const seg = 7 + Math.floor(Math.random() * 4);
+      for (let j = 0; j < seg; j++) {
+        x += Math.cos(a) * s * 0.055 + (Math.random() - 0.5) * 9;
+        y += Math.sin(a) * s * 0.055 + (Math.random() - 0.5) * 9;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // glowing rune rings (bloom picks these up into a faint magic circle)
+    for (const [rr, al, col] of [
+      [0.28, 0.5, '#5f7cff'],
+      [0.4, 0.34, '#9a5cff'],
+    ] as const) {
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = al;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, s * rr, s * rr * 0.86, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   });
 }
 
@@ -266,18 +328,22 @@ function Embers() {
   );
 }
 
-/** Arena floor: a soft glow pool the fighters stand in, so they don't float on the art. */
+/** Arena floor: a detailed cracked-stone slab with a glowing rune circle, plus a
+ *  soft light pool so the fighters read as planted on real ground. */
 function ArenaFloor() {
   const glow = useGlowTex();
+  const ground = useGroundTex();
   return (
     <>
-      <mesh rotation-x={-Math.PI / 2} position={[0, -0.02, 0]} renderOrder={2}>
-        <planeGeometry args={[30, 12]} />
-        <meshBasicMaterial color="#05030c" transparent opacity={0.62} depthWrite={false} />
+      {/* cracked stone slab (the detailed ground) */}
+      <mesh rotation-x={-Math.PI / 2} position={[0, -0.02, -1]} renderOrder={2}>
+        <planeGeometry args={[26, 17]} />
+        <meshBasicMaterial map={ground} transparent opacity={0.97} depthWrite={false} />
       </mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.0, 0.5]} renderOrder={3}>
+      {/* warm light pool spilling from the fight */}
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.0, 0.6]} renderOrder={3}>
         <planeGeometry args={[9, 4]} />
-        <meshBasicMaterial map={glow} color="#38306e" transparent opacity={0.7} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <meshBasicMaterial map={glow} color="#4a3f7a" transparent opacity={0.6} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
     </>
   );
@@ -380,11 +446,34 @@ function Knight({ alive }: { alive: boolean }) {
     let swordTarget: number;
     if (alive) {
       const breathe = Math.sin(t * 2.1);
-      g.position.x = BASE_X + step.lunge * strike * 0.7 - flinch * 0.38;
+      const next = COMBO[(s.combo + 1) % COMBO.length];
+      // One shared swing curve drives BOTH the torso twist and the wrist snap, so
+      // the whole body powers the blow: it winds back off the enemy during the
+      // anticipation, whips to the contact angle, overshoots a touch, then eases
+      // home — and while idle it cocks back toward the next strike's wind-up.
+      const swingAngle = (windA: number, hitA: number, nextWindA: number) => {
+        // wind-up → whip to contact → HOLD the extended pose (hit-stop) → ease home
+        if (raw < CONTACT) return THREE.MathUtils.lerp(windA, hitA, easeOutQuart(raw / CONTACT));
+        if (raw < 1) {
+          const back = easeInOut(clamp01((raw - CONTACT - HOLD) / (1 - CONTACT - HOLD)));
+          return THREE.MathUtils.lerp(hitA * 1.06, 0, back);
+        }
+        const windT = Math.min(0.5, rhythm.period * 0.5);
+        const w = s.start < 0 ? 0 : clamp01((t - (s.start + rhythm.period - windT)) / windT);
+        return nextWindA * easeInOut(w);
+      };
+
+      // torso twist (feet planted, whole body + arms swing): amplified drive-through
+      // with a real wind-back the other way. Because the fists sit ~1 unit above the
+      // foot pivot, this alone sweeps the grip a long way — the arm visibly travels.
+      const bodyHit = step.lean * 2.0;
+      const bodyWind = -step.lean * 0.7;
+      const bodySwing = swingAngle(bodyWind, bodyHit, -next.lean * 0.7);
+
+      g.position.x = BASE_X + step.lunge * strike * 0.9 - flinch * 0.38;
       g.position.y = hopArc + Math.max(0, breathe) * 0.02;
       g.rotation.z = 0;
-      // lean the whole sprite into the blow; idle sway when at rest
-      bd.rotation.z = step.lean * strike + Math.sin(t * 0.9) * 0.022 + flinch * 0.22;
+      bd.rotation.z = bodySwing + Math.sin(t * 1.1) * 0.02 + flinch * 0.22;
       // contact squash + idle breathing
       bd.scale.y = 1 - sq * 0.07 + breathe * 0.008;
       bd.scale.x = 1 + sq * 0.07;
@@ -394,23 +483,8 @@ function Knight({ alive }: { alive: boolean }) {
       if (flashMat.current) flashMat.current.opacity = sq * 0.22;
       if (shadow.current) shadow.current.scale.setScalar(Math.max(0.4, 1 - hopArc * 0.5));
 
-      // --- the real swing ---
-      if (raw < CONTACT) {
-        // whip from the strike's wind angle to the contact angle (the smoothed
-        // tracker below hides any gap if the wind-up hadn't fully arrived)
-        swordTarget = THREE.MathUtils.lerp(step.wind, step.hitRot, easeOutQuart(raw / CONTACT));
-      } else if (raw < 1) {
-        // follow-through: overshoot a touch past the contact angle, then recover
-        const back = easeInOut((raw - CONTACT) / (1 - CONTACT));
-        swordTarget = THREE.MathUtils.lerp(step.hitRot * 1.08, 0, back);
-      } else {
-        // idle float + anticipation: raise toward the NEXT strike's wind angle
-        // in the last stretch before the predicted hit (period = attack EMA)
-        const next = COMBO[(s.combo + 1) % COMBO.length];
-        const windT = Math.min(0.45, rhythm.period * 0.45);
-        const wind = s.start < 0 ? 0 : clamp01((t - (s.start + rhythm.period - windT)) / windT);
-        swordTarget = next.wind * easeInOut(wind) + Math.sin(t * 1.6) * 0.045;
-      }
+      // the wrist snap on top of the body twist (they compound into one big arc)
+      swordTarget = swingAngle(step.wind, step.hitRot, next.wind) + (raw >= 1 ? Math.sin(t * 1.6) * 0.045 : 0);
     } else {
       // death: keel over backwards, blade slumps to the ground, color drains
       g.position.x += (BASE_X - g.position.x) * Math.min(1, dt * 5);
@@ -537,7 +611,6 @@ function Demon({ kind }: { kind: EnemyKind }) {
   const flash = useRef(0);
   const kb = useRef(0); // knockback (→0)
   const squash = useRef(0); // hit squash (1→0)
-  const lunge = useRef(0); // its own bite lunge (1→0)
   const pop = useRef(0); // spawn pop-in after a kill (1→0)
   const conf = KIND[kind] ?? KIND.normal;
   const tint = useMemo(() => new THREE.Color(conf.tint), [conf.tint]);
@@ -553,15 +626,11 @@ function Demon({ kind }: { kind: EnemyKind }) {
       kb.current = e.double ? 0.95 : e.crit ? 0.7 : 0.45;
       squash.current = 1;
     });
-    const offHurt = combatBus.on('hurt', () => {
-      lunge.current = 1;
-    });
     const offKill = combatBus.on('kill', () => {
       pop.current = 1; // the next fiend claws its way in
     });
     return () => {
       offHit();
-      offHurt();
       offKill();
     };
   }, []);
@@ -573,20 +642,18 @@ function Demon({ kind }: { kind: EnemyKind }) {
     const t = now();
     kb.current *= Math.pow(0.002, dt);
     squash.current = Math.max(0, squash.current - dt / 0.18);
-    lunge.current = Math.max(0, lunge.current - dt / 0.24);
     pop.current = Math.max(0, pop.current - dt / 0.4);
     flash.current = Math.max(0, flash.current - dt / 0.12);
 
     const sq = easeOutQuart(squash.current);
-    const lg = easeOutQuart(lunge.current);
     const spawn = 0.55 + 0.45 * easeOutBack(1 - pop.current);
 
-    g.position.x = DEMON_X + kb.current - lg * 0.85;
-    g.rotation.z = kb.current * 0.3 - lg * 0.16;
-    // heavy breathing + hit squash + spawn pop
-    const breathe = 1 + Math.sin(t * 1.5) * 0.022;
-    bd.scale.set(conf.scale * (1 + sq * 0.16) * spawn, conf.scale * breathe * (1 - sq * 0.2) * spawn, 1);
-    bd.rotation.z = Math.sin(t * 0.7 + 1.7) * 0.02;
+    // The fiend stands its ground — no idle breathing or sway. It only reacts to
+    // blows it takes: knockback + squash below, plus the hit flash further down.
+    g.position.x = DEMON_X + kb.current;
+    g.rotation.z = kb.current * 0.3;
+    bd.scale.set(conf.scale * (1 + sq * 0.16) * spawn, conf.scale * (1 - sq * 0.2) * spawn, 1);
+    bd.rotation.z = 0;
 
     // hit flash: white-hot overlay + a red bruise on the base tint
     const f = easeOutQuart(flash.current);
@@ -1180,7 +1247,7 @@ function CameraRig() {
   const { camera } = useThree();
   const shake = useRef(0);
   const kick = useRef(0);
-  const base = useMemo(() => new THREE.Vector3(0, 1.45, 6.2), []);
+  const base = useMemo(() => new THREE.Vector3(0, 1.8, 6.4), []);
   useEffect(() => {
     const offHit = combatBus.on('hit', (e) => {
       const step = COMBO[comboFor(e)];
@@ -1211,7 +1278,7 @@ function CameraRig() {
       base.y + Math.sin(t * 0.17) * 0.05 + (Math.random() - 0.5) * s * 0.7,
       base.z - kick.current * 0.9,
     );
-    camera.lookAt(0, 1.05, 0);
+    camera.lookAt(0, 1.28, 0);
   });
   return null;
 }
@@ -1260,18 +1327,30 @@ function World() {
   );
 }
 
+// While AFK the frameloop is 'demand'; this ticker still requests a frame every
+// UNFOCUSED_FRAME_INTERVAL_MS so the scene idles at ~10fps instead of freezing
+// solid — alive behind the dim, but far cheaper than the full 60fps loop.
+function AfkTicker({ afk }: { afk: boolean }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!afk) return;
+    const id = setInterval(() => invalidate(), UNFOCUSED_FRAME_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [afk, invalidate]);
+  return null;
+}
+
 export function Scene3D() {
-  // While AFK (window unfocused) freeze the scene on its last frame — no idle
-  // jitter, no HP-bar twitching — the DOM AFK badge shows the earnings instead.
   const afk = useGameStore((s) => s.afk);
   return (
     <Canvas
       className="scene"
       dpr={[1, 2]}
       frameloop={afk ? 'demand' : 'always'}
-      camera={{ position: [0, 1.45, 6.2], fov: 42 }}
+      camera={{ position: [0, 1.8, 6.4], fov: 42 }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
     >
+      <AfkTicker afk={afk} />
       <Suspense fallback={null}>
         <World />
       </Suspense>

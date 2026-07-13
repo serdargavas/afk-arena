@@ -1,6 +1,6 @@
 import { META_BY_ID, nodeCost } from './content/metaNodes';
 import { CLASSES } from './content/classes';
-import { SKILL_BY_ID } from './content/skills';
+import { SKILL_BY_ID, SKILL_NODES } from './content/skills';
 import { SKILL_POINTS } from './constants';
 import type { GameSave, ClassId, SlotId } from './types';
 
@@ -44,14 +44,20 @@ export function skillsAllocated(save: GameSave): number {
   return n;
 }
 
-/** Toggle a skill node. Allocating is blocked once SKILL_POINTS are spent. */
+/** Toggle a skill node, PoE-style: allocating requires the prereq (one step
+ *  toward the centre) and refunding is blocked while a child depends on it —
+ *  chains grow and shrink from the tips. */
 export function allocateSkill(save: GameSave, id: string): boolean {
-  if (!SKILL_BY_ID[id]) return false;
+  const node = SKILL_BY_ID[id];
+  if (!node) return false;
   if (save.meta.skills[id] > 0) {
+    const orphans = SKILL_NODES.some((n) => n.prereq === id && save.meta.skills[n.id] > 0);
+    if (orphans) return false;
     delete save.meta.skills[id];
     return true;
   }
   if (skillsAllocated(save) >= SKILL_POINTS) return false;
+  if (node.prereq && !(save.meta.skills[node.prereq] > 0)) return false;
   save.meta.skills[id] = 1;
   return true;
 }

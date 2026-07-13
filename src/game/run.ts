@@ -1,5 +1,5 @@
 import {
-  RELIC_OFFER_SIZE,
+  RELIC_EVERY_STAGES,
   LEVEL_ATTACK_PCT,
   LEVEL_HP_PCT,
   EVENT_CHANCE,
@@ -46,7 +46,7 @@ function essencePctFromMeta(meta: MetaState): number {
   return (def?.essencePct ?? 0) * metaLevel(meta, 'attunement');
 }
 
-function extraRelicChoices(meta: MetaState): number {
+function boxLuck(meta: MetaState): number {
   return metaLevel(meta, 'foresight');
 }
 
@@ -54,20 +54,14 @@ function randomRelic(rng: Rng): RelicInstance {
   return { id: rng.pick(RELICS).id, rarity: rollRarity(rng) };
 }
 
-/** Build a de-duplicated relic offer (3 + meta bonus options). */
-function rollOffer(save: GameSave, rng: Rng): RelicInstance[] {
-  const size = RELIC_OFFER_SIZE + extraRelicChoices(save.meta);
-  const offer: RelicInstance[] = [];
-  const used = new Set<string>();
-  let guard = 0;
-  while (offer.length < size && guard < 200) {
-    guard++;
-    const def = rng.pick(RELICS);
-    if (used.has(def.id)) continue;
-    used.add(def.id);
-    offer.push({ id: def.id, rarity: rollRarity(rng) });
-  }
-  return offer;
+/** Roll the mystery-box relic: variety-weighted (relics you own fewer copies of
+ *  are likelier), rarity biased up by Foresight luck. */
+function rollBoxRelic(save: GameSave, rng: Rng): RelicInstance {
+  const owned = new Map<string, number>();
+  for (const r of save.run.relics) owned.set(r.id, (owned.get(r.id) ?? 0) + 1);
+  const weights = RELICS.map((def) => 1 / (1 + (owned.get(def.id) ?? 0)));
+  const def = RELICS[rng.weightedIndex(weights)];
+  return { id: def.id, rarity: rollRarity(rng, boxLuck(save.meta)) };
 }
 
 /** Fresh run built from the current meta (selected class, head-start, etc.). */
@@ -115,6 +109,7 @@ export function startRun(save: GameSave): void {
 export function advanceWave(save: GameSave, rng: Rng): boolean {
   const run = save.run;
   if (isFinalWave(run.waveInStage)) {
+    const cleared = run.stage;
     run.stage += 1;
     run.waveInStage = 0;
     run.bestStageThisRun = Math.max(run.bestStageThisRun, run.stage);
@@ -122,8 +117,18 @@ export function advanceWave(save: GameSave, rng: Rng): boolean {
     run.hero.bonusMaxHpPct += LEVEL_HP_PCT;
     recompute(save);
     run.hero.hp = run.stats.maxHp; // heal on stage clear
-    run.phase = 'relic';
-    run.offer = rollOffer(save, rng);
+    // A mystery box only drops every Nth cleared stage (relics are rarer but far
+    // stronger now); other clears may roll an event, else combat flows straight on.
+    // NB: uses the tick's live rng — never re-seed from save.rngState mid-tick.
+    if (cleared % RELIC_EVERY_STAGES === 0) {
+      run.phase = 'relic';
+      run.offer = [rollBoxRelic(save, rng)];
+    } else if (rng.next() < EVENT_CHANCE) {
+      run.phase = 'event';
+      run.eventId = rng.pick(EVENTS).id;
+    } else {
+      run.enemy = makeEnemy(run.stage, enemyKindFor(run.stage, run.waveInStage, rng));
+    }
     return true;
   }
   run.waveInStage += 1;

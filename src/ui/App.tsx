@@ -7,9 +7,8 @@ import { useGameStore } from '../store/gameStore';
 import { setAlwaysOnTop, setOverFullscreen } from '../platform/window';
 import { isTauri } from '../platform/tauri';
 import { TitleBar } from './TitleBar';
-import { Hud } from './Hud';
 import { RunPanel } from './RunPanel';
-import { RelicChoice } from './RelicChoice';
+import { MysteryBox } from './MysteryBox';
 import { EventModal } from './EventModal';
 import { DeathScreen } from './DeathScreen';
 import { RebirthScreen } from './RebirthScreen';
@@ -106,10 +105,9 @@ export default function App() {
       <TitleBar />
       <Scene3D />
       <SceneOverlays />
-      <Hud />
       <ActionBar onOpen={setPanel} />
       <RunPanel />
-      {phase === 'relic' && <RelicChoice />}
+      {phase === 'relic' && <MysteryBox />}
       {phase === 'event' && <EventModal />}
       {phase === 'dead' && <DeathScreen onMeta={() => setPanel('meta')} />}
       {charTab && <RebirthScreen initialTab={charTab} onClose={() => setPanel(null)} />}

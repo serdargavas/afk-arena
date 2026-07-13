@@ -83,8 +83,12 @@ export function essenceForStage(bestStage: number, essencePct: number): number {
   return Math.floor(raw * (1 + essencePct));
 }
 
-/** Roll a rarity using the global weights, then bias up by `luck` extra rolls. */
-export function rollRarity(rng: Rng): Rarity {
+/** Roll a rarity using the global weights; `luck` grants extra rolls, keep the best. */
+export function rollRarity(rng: Rng, luck = 0): Rarity {
   const weights = RARITIES.map((r) => RARITY_WEIGHT[r]);
-  return RARITIES[rng.weightedIndex(weights)];
+  let best = 0;
+  for (let i = 0; i <= luck; i++) {
+    best = Math.max(best, rng.weightedIndex(weights));
+  }
+  return RARITIES[best];
 }
