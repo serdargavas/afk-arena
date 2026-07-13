@@ -153,14 +153,19 @@ export class GameLoop {
       this.acc = 0;
     }
 
-    // Auto-relic: pick shortly after the offer appears, if the player enabled it.
-    if (this.save.run.phase === 'relic' && this.save.meta.settings.autoRelic) {
+    // Auto-pick: after ~2s, auto-resolve relic offers AND events (shared logic).
+    const p = this.save.run.phase;
+    if ((p === 'relic' || p === 'event') && this.save.meta.settings.autoRelic) {
       if (this.relicSince === 0) this.relicSince = now;
       else if (now - this.relicSince >= AUTO_RELIC_DELAY_MS) {
         this.relicSince = 0;
-        this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
+        if (this.save.run.phase === 'relic') {
+          this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
+        } else {
+          this.act(() => resolveEvent(this.save, 0));
+        }
       }
-    } else if (this.save.run.phase !== 'relic') {
+    } else if (p !== 'relic' && p !== 'event') {
       this.relicSince = 0;
     }
 
@@ -168,7 +173,7 @@ export class GameLoop {
     if (now - this.lastRenderAt >= renderInterval) {
       const dt = Math.min(0.1, (now - this.lastRenderAt) / 1000) || 0.016;
       this.particles.update(dt);
-      this.renderer.render(this.save, this.simTime);
+      this.renderer.render(this.save);
       this.lastRenderAt = now;
     }
 

@@ -5,9 +5,11 @@ export function EventModal() {
   useGameStore((s) => s.screenVersion);
   const save = useGameStore((s) => s.save);
   const resolve = useGameStore((s) => s.actions.resolveEvent);
+  const setAutoRelic = useGameStore((s) => s.actions.setAutoRelic);
   const id = save?.run.eventId;
   const def = id ? EVENT_BY_ID[id] : undefined;
-  if (!def) return null;
+  if (!def || !save) return null;
+  const auto = save.meta.settings.autoRelic;
 
   return (
     <div className="modal-backdrop">
@@ -23,6 +25,10 @@ export function EventModal() {
             </button>
           ))}
         </div>
+        <button className={`toggle auto-toggle ${auto ? 'on' : ''}`} onClick={() => setAutoRelic(!auto)}>
+          <span>{auto ? 'Auto-resolving in 2s…' : 'Auto-pick relics & events'}</span>
+          <span className="knob">{auto ? 'ON' : 'OFF'}</span>
+        </button>
       </div>
     </div>
   );

@@ -25,22 +25,45 @@ fn save_game(app: tauri::AppHandle, data: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Keep the window above other windows. Implemented in Rust so it never depends
-/// on a JS capability being present.
-#[tauri::command]
-fn set_always_on_top(window: WebviewWindow, on: bool) -> Result<(), String> {
-    window.set_always_on_top(on).map_err(|e| e.to_string())
+/// Set the native NSWindow collection behavior + level so the window floats even
+/// over OTHER apps' fullscreen spaces (tao's always-on-top alone does not do this).
+#[cfg(target_os = "macos")]
+fn apply_float_level(window: &WebviewWindow, on: bool) {
+    use objc::runtime::Object;
+    use objc::{msg_send, sel, sel_impl};
+    if let Ok(ptr) = window.ns_window() {
+        let ns = ptr as *mut Object;
+        unsafe {
+            // CanJoinAllSpaces (1<<0) | FullScreenAuxiliary (1<<8) → shows on other
+            // apps' fullscreen spaces; 0 restores default behavior.
+            let behavior: u64 = if on { (1 << 0) | (1 << 8) } else { 0 };
+            let _: () = msg_send![ns, setCollectionBehavior: behavior];
+            // NSStatusWindowLevel (25) floats above almost everything; 0 = normal.
+            let level: i64 = if on { 25 } else { 0 };
+            let _: () = msg_send![ns, setLevel: level];
+        }
+    }
 }
 
-/// Show the window on every Space and above other apps' fullscreen windows.
+#[cfg(not(target_os = "macos"))]
+fn apply_float_level(_window: &WebviewWindow, _on: bool) {}
+
+/// Keep the window above everything — including other apps' fullscreen windows.
+#[tauri::command]
+fn set_always_on_top(window: WebviewWindow, on: bool) -> Result<(), String> {
+    window.set_always_on_top(on).map_err(|e| e.to_string())?;
+    apply_float_level(&window, on);
+    Ok(())
+}
+
+/// Explicit "over fullscreen / all Spaces" toggle (same native treatment).
 #[tauri::command]
 fn set_over_fullscreen(window: WebviewWindow, on: bool) -> Result<(), String> {
     window
         .set_visible_on_all_workspaces(on)
         .map_err(|e| e.to_string())?;
-    if on {
-        window.set_always_on_top(true).map_err(|e| e.to_string())?;
-    }
+    window.set_always_on_top(on).map_err(|e| e.to_string())?;
+    apply_float_level(&window, on);
     Ok(())
 }
 

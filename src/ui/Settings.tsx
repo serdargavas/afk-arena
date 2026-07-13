@@ -39,7 +39,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           <div className="section-label">Gameplay</div>
           <Toggle
-            label="Auto-pick relics (after 2s)"
+            label="Auto-pick relics & events (2s)"
             on={st.autoRelic}
             onChange={(v) => a.setAutoRelic(v)}
           />

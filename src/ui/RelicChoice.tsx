@@ -29,7 +29,7 @@ export function RelicChoice() {
           })}
         </div>
         <button className={`toggle auto-toggle ${auto ? 'on' : ''}`} onClick={() => setAutoRelic(!auto)}>
-          <span>{auto ? 'Auto-picking best in 2s…' : 'Auto-pick relics'}</span>
+          <span>{auto ? 'Auto-picking best in 2s…' : 'Auto-pick relics & events'}</span>
           <span className="knob">{auto ? 'ON' : 'OFF'}</span>
         </button>
       </div>
