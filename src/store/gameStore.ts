@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameSave, UISnapshot, OfflineReport, ClassId } from '../game/types';
+import type { GameSave, UISnapshot, OfflineReport, ClassId, ShopKey } from '../game/types';
 
 /** Imperative actions the UI invokes; the loop wires the real implementations. */
 export interface GameActions {
@@ -7,9 +7,11 @@ export interface GameActions {
   resolveEvent: (index: number) => void;
   rebirth: () => void;
   buyNode: (id: string) => void;
+  buyShop: (key: ShopKey) => void;
   selectClass: (id: ClassId) => void;
   setAlwaysOnTop: (v: boolean) => void;
   setOverFullscreen: (v: boolean) => void;
+  setAutoRelic: (v: boolean) => void;
   setPlayerName: (name: string) => void;
 }
 
@@ -18,9 +20,11 @@ const NOOP: GameActions = {
   resolveEvent: () => {},
   rebirth: () => {},
   buyNode: () => {},
+  buyShop: () => {},
   selectClass: () => {},
   setAlwaysOnTop: () => {},
   setOverFullscreen: () => {},
+  setAutoRelic: () => {},
   setPlayerName: () => {},
 };
 
@@ -40,6 +44,7 @@ const INITIAL: UISnapshot = {
   enemyKind: 'normal',
   relicCount: 0,
   bestStage: 1,
+  essenceIfRebirth: 0,
 };
 
 interface GameStore extends UISnapshot {

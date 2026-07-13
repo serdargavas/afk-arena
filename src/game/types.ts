@@ -74,11 +74,20 @@ export interface EnemyState {
   flash: number; // hit-flash timer (render juice)
 }
 
+export interface ShopLevels {
+  attack: number;
+  hp: number;
+  speed: number;
+}
+
+export type ShopKey = keyof ShopLevels;
+
 export interface RunState {
   stage: number; // 1-based
   waveInStage: number; // 0..STAGE_KILLS-1
   gold: number;
   kills: number;
+  shop: ShopLevels; // in-run gold upgrades (reset each run)
   hero: HeroState;
   enemy: EnemyState;
   relics: RelicInstance[];
@@ -93,6 +102,7 @@ export interface RunState {
 export interface Settings {
   alwaysOnTop: boolean;
   overFullscreen: boolean; // visible on all Spaces / above other fullscreen apps
+  autoRelic: boolean; // auto-pick a relic 2s after the offer appears
 }
 
 export interface MetaState {
@@ -135,6 +145,7 @@ export interface UISnapshot {
   enemyKind: EnemyKind;
   relicCount: number;
   bestStage: number;
+  essenceIfRebirth: number; // essence you'd bank by rebirthing right now
 }
 
 export interface OfflineReport {

@@ -1,5 +1,5 @@
 import type { GameSave, Stats, RelicInstance } from './types';
-import { RARITY_MULT } from './constants';
+import { RARITY_MULT, SHOP_ATTACK_PCT, SHOP_HP_PCT, SHOP_SPEED_PCT } from './constants';
 import { CLASSES } from './content/classes';
 import { relicDef } from './content/relics';
 import { META_NODES } from './content/metaNodes';
@@ -76,13 +76,15 @@ export function computeStats(save: GameSave): Stats {
   addMeta(acc, save.meta.nodes);
   for (const r of run.relics) addRelic(acc, r);
 
-  const attackPct = acc.attackPct + run.hero.bonusAttackPct;
-  const maxHpPct = acc.maxHpPct + run.hero.bonusMaxHpPct;
+  const shop = run.shop;
+  const attackPct = acc.attackPct + run.hero.bonusAttackPct + SHOP_ATTACK_PCT * shop.attack;
+  const maxHpPct = acc.maxHpPct + run.hero.bonusMaxHpPct + SHOP_HP_PCT * shop.hp;
+  const attackSpeedPct = acc.attackSpeedPct + SHOP_SPEED_PCT * shop.speed;
 
   return {
     maxHp: Math.max(1, Math.round(base.maxHp * (1 + maxHpPct))),
     attack: Math.max(0.1, base.attack * (1 + attackPct)),
-    attackSpeed: Math.max(0.1, base.attackSpeed * (1 + acc.attackSpeedPct)),
+    attackSpeed: Math.max(0.1, base.attackSpeed * (1 + attackSpeedPct)),
     critChance: clamp01(base.critChance + acc.critChance),
     critMult: Math.max(1, base.critMult + acc.critMult),
     armor: Math.max(0, base.armor + acc.armor),

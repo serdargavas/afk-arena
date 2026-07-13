@@ -9,6 +9,8 @@ export function RebirthScreen({ onClose }: { onClose: () => void }) {
   const buy = useGameStore((s) => s.actions.buyNode);
   const selectClass = useGameStore((s) => s.actions.selectClass);
   const rebirth = useGameStore((s) => s.actions.rebirth);
+  const essenceIfRebirth = useGameStore((s) => s.essenceIfRebirth);
+  const stage = useGameStore((s) => s.stage);
   const [confirm, setConfirm] = useState(false);
   if (!save) return null;
   const meta = save.meta;
@@ -72,9 +74,13 @@ export function RebirthScreen({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="sheet-foot">
+          <div className="rebirth-hint">
+            Rebirth ends this run (now stage {stage}) and banks essence to buy permanent
+            upgrades. Push as far as you can, then rebirth stronger.
+          </div>
           {confirm ? (
             <div className="confirm-row">
-              <span>End run &amp; bank essence?</span>
+              <span>End run for +{formatNum(essenceIfRebirth)} ◆?</span>
               <button className="modal-btn danger" onClick={() => { rebirth(); onClose(); }}>
                 Yes
               </button>
@@ -84,7 +90,7 @@ export function RebirthScreen({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <button className="modal-btn danger" onClick={() => setConfirm(true)}>
-              Rebirth Now
+              Rebirth Now · +{formatNum(essenceIfRebirth)} ◆
             </button>
           )}
         </div>

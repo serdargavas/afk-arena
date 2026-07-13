@@ -25,6 +25,25 @@ fn save_game(app: tauri::AppHandle, data: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Keep the window above other windows. Implemented in Rust so it never depends
+/// on a JS capability being present.
+#[tauri::command]
+fn set_always_on_top(window: WebviewWindow, on: bool) -> Result<(), String> {
+    window.set_always_on_top(on).map_err(|e| e.to_string())
+}
+
+/// Show the window on every Space and above other apps' fullscreen windows.
+#[tauri::command]
+fn set_over_fullscreen(window: WebviewWindow, on: bool) -> Result<(), String> {
+    window
+        .set_visible_on_all_workspaces(on)
+        .map_err(|e| e.to_string())?;
+    if on {
+        window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Snap the (frameless) window to the bottom-right corner of its monitor.
 fn position_bottom_right(win: &WebviewWindow) {
     let monitor = match win.current_monitor() {
@@ -48,7 +67,12 @@ fn position_bottom_right(win: &WebviewWindow) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![load_game, save_game])
+        .invoke_handler(tauri::generate_handler![
+            load_game,
+            save_game,
+            set_always_on_top,
+            set_over_fullscreen
+        ])
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
                 position_bottom_right(&win);

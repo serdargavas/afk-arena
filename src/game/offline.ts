@@ -1,25 +1,7 @@
 import { TICK_DT, MAX_OFFLINE_SECONDS, MAX_OFFLINE_ITERS } from './constants';
 import { stepSim } from './combat';
-import { pickRelic, resolveEvent } from './run';
-import { RARITIES } from './types';
+import { pickRelic, resolveEvent, bestOfferIndex } from './run';
 import type { GameSave, OfflineReport, RunPhase } from './types';
-
-// Rarity preference (best first) for the offline auto-picker.
-const RARITY_RANK = [...RARITIES].reverse(); // legendary..common
-
-function autoPickIndex(save: GameSave): number {
-  const offer = save.run.offer ?? [];
-  let best = 0;
-  let bestRank = Infinity;
-  offer.forEach((r, i) => {
-    const rank = RARITY_RANK.indexOf(r.rarity);
-    if (rank !== -1 && rank < bestRank) {
-      bestRank = rank;
-      best = i;
-    }
-  });
-  return best;
-}
 
 /**
  * Catch up for time spent away (closed / minimized / stalled). Replays the real
@@ -63,7 +45,7 @@ export function applyOffline(save: GameSave, elapsedSeconds: number): OfflineRep
       simulated += TICK_DT;
       if ((save.run.phase as RunPhase) === 'dead') died = true;
     } else if (phase === 'relic') {
-      pickRelic(save, autoPickIndex(save));
+      pickRelic(save, bestOfferIndex(save));
     } else if (phase === 'event') {
       resolveEvent(save, 0);
     } else {

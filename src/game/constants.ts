@@ -49,6 +49,20 @@ export const BOSS_ATK_SPEED = 0.7;
 export const LEVEL_ATTACK_PCT = 0.08;
 export const LEVEL_HP_PCT = 0.06;
 
+// --- In-run gold shop (gold sink) ---
+export const SHOP_ATTACK_PCT = 0.06; // +6% attack per level
+export const SHOP_HP_PCT = 0.06; // +6% max HP per level
+export const SHOP_SPEED_PCT = 0.035; // +3.5% attack speed per level
+export const SHOP_BASE_COST: Record<'attack' | 'hp' | 'speed', number> = {
+  attack: 25,
+  hp: 25,
+  speed: 45,
+};
+export const SHOP_COST_GROWTH = 1.5;
+
+// --- Auto-relic convenience ---
+export const AUTO_RELIC_DELAY_MS = 2000;
+
 // --- Rarity ---
 export const RARITY_MULT: Record<Rarity, number> = {
   common: 1,

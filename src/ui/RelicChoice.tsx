@@ -2,11 +2,13 @@ import { useGameStore } from '../store/gameStore';
 import { relicDef } from '../game';
 
 export function RelicChoice() {
-  useGameStore((s) => s.screenVersion); // re-render when the offer changes
+  useGameStore((s) => s.screenVersion); // re-render when the offer / setting changes
   const save = useGameStore((s) => s.save);
   const pick = useGameStore((s) => s.actions.pickRelic);
+  const setAutoRelic = useGameStore((s) => s.actions.setAutoRelic);
   const offer = save?.run.offer;
-  if (!offer) return null;
+  if (!offer || !save) return null;
+  const auto = save.meta.settings.autoRelic;
 
   return (
     <div className="modal-backdrop">
@@ -26,6 +28,10 @@ export function RelicChoice() {
             );
           })}
         </div>
+        <button className={`toggle auto-toggle ${auto ? 'on' : ''}`} onClick={() => setAutoRelic(!auto)}>
+          <span>{auto ? 'Auto-picking best in 2s…' : 'Auto-pick relics'}</span>
+          <span className="knob">{auto ? 'ON' : 'OFF'}</span>
+        </button>
       </div>
     </div>
   );

@@ -6,15 +6,23 @@ import {
   STORE_PUSH_INTERVAL_MS,
   AUTOSAVE_INTERVAL_MS,
   UNFOCUSED_FRAME_INTERVAL_MS,
+  AUTO_RELIC_DELAY_MS,
 } from './game/constants';
 import { stepSim, type TickEvents } from './game/combat';
 import { applyOffline } from './game/offline';
 import { serialize } from './game/save';
-import { pickRelic, resolveEvent, rebirth } from './game/run';
+import {
+  pickRelic,
+  resolveEvent,
+  rebirth,
+  buyShop,
+  bestOfferIndex,
+  essenceIfRebirthNow,
+} from './game/run';
 import { buyNode, selectClass } from './game/meta';
 import { expectedDps } from './game/stats';
 import { biomeName } from './game/progression';
-import type { GameSave, UISnapshot, ClassId } from './game/types';
+import type { GameSave, UISnapshot, ClassId, ShopKey } from './game/types';
 import { Renderer } from './render/renderer';
 import { ParticlePool } from './render/particles';
 import { pushSnapshot, bumpScreen, useGameStore, type GameActions } from './store/gameStore';
@@ -38,6 +46,7 @@ function snapshotOf(save: GameSave): UISnapshot {
     enemyKind: run.enemy.kind,
     relicCount: run.relics.length,
     bestStage: save.meta.bestStage,
+    essenceIfRebirth: essenceIfRebirthNow(save),
   };
 }
 
@@ -61,6 +70,8 @@ function screenKeyOf(save: GameSave): string {
     nodes,
     m.settings.alwaysOnTop ? 1 : 0,
     m.settings.overFullscreen ? 1 : 0,
+    m.settings.autoRelic ? 1 : 0,
+    `${r.shop.attack}.${r.shop.hp}.${r.shop.speed}`,
     m.playerName,
   ].join('~');
 }
@@ -80,6 +91,7 @@ export class GameLoop {
   private lastStorePush = 0;
   private lastAutosave = 0;
   private lastScreenKey = '';
+  private relicSince = 0; // when the current relic offer appeared (auto-relic timer)
 
   constructor(save: GameSave, canvas: HTMLCanvasElement) {
     this.save = save;
@@ -141,6 +153,17 @@ export class GameLoop {
       this.acc = 0;
     }
 
+    // Auto-relic: pick shortly after the offer appears, if the player enabled it.
+    if (this.save.run.phase === 'relic' && this.save.meta.settings.autoRelic) {
+      if (this.relicSince === 0) this.relicSince = now;
+      else if (now - this.relicSince >= AUTO_RELIC_DELAY_MS) {
+        this.relicSince = 0;
+        this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
+      }
+    } else if (this.save.run.phase !== 'relic') {
+      this.relicSince = 0;
+    }
+
     const renderInterval = this.focused ? 0 : UNFOCUSED_FRAME_INTERVAL_MS;
     if (now - this.lastRenderAt >= renderInterval) {
       const dt = Math.min(0.1, (now - this.lastRenderAt) / 1000) || 0.016;
@@ -191,9 +214,11 @@ export class GameLoop {
       resolveEvent: (i) => this.act(() => resolveEvent(this.save, i)),
       rebirth: () => this.act(() => rebirth(this.save)),
       buyNode: (id) => this.act(() => buyNode(this.save, id)),
+      buyShop: (key: ShopKey) => this.act(() => buyShop(this.save, key)),
       selectClass: (id: ClassId) => this.act(() => selectClass(this.save, id)),
       setAlwaysOnTop: (v) => this.act(() => { this.save.meta.settings.alwaysOnTop = v; }),
       setOverFullscreen: (v) => this.act(() => { this.save.meta.settings.overFullscreen = v; }),
+      setAutoRelic: (v) => this.act(() => { this.save.meta.settings.autoRelic = v; }),
       setPlayerName: (name) => this.act(() => { this.save.meta.playerName = name.slice(0, 24); }),
     };
   }

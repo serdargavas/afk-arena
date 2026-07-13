@@ -31,7 +31,7 @@ export function createInitialSave(now: number, seed: number = DEFAULT_SEED): Gam
       bestStage: 1,
       bestEssence: 0,
       totalRebirths: 0,
-      settings: { alwaysOnTop: false, overFullscreen: false },
+      settings: { alwaysOnTop: false, overFullscreen: false, autoRelic: false },
       playerId: '',
       playerName: '',
     },
@@ -119,7 +119,11 @@ function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
     bestStage: Math.max(1, Math.floor(num(m?.bestStage, 1))),
     bestEssence: Math.max(0, num(m?.bestEssence, 0)),
     totalRebirths: Math.max(0, Math.floor(num(m?.totalRebirths, 0))),
-    settings: { alwaysOnTop: !!s.alwaysOnTop, overFullscreen: !!s.overFullscreen },
+    settings: {
+      alwaysOnTop: !!s.alwaysOnTop,
+      overFullscreen: !!s.overFullscreen,
+      autoRelic: !!s.autoRelic,
+    },
     playerId: typeof m?.playerId === 'string' ? m.playerId : '',
     playerName: typeof m?.playerName === 'string' ? m.playerName : '',
   };
@@ -183,11 +187,17 @@ function sanitizeRun(r: Record<string, unknown> | undefined, save: GameSave): Ru
   if (phase === 'event' && !eventId) phase = 'fighting';
 
   const cls = CLASSES[classId];
+  const shopRaw = (r?.shop ?? {}) as Record<string, unknown>;
   return {
     stage,
     waveInStage,
     gold: Math.max(0, num(r?.gold, 0)),
     kills: Math.max(0, Math.floor(num(r?.kills, 0))),
+    shop: {
+      attack: Math.max(0, Math.floor(num(shopRaw.attack, 0))),
+      hp: Math.max(0, Math.floor(num(shopRaw.hp, 0))),
+      speed: Math.max(0, Math.floor(num(shopRaw.speed, 0))),
+    },
     hero: {
       classId,
       hp: Math.max(0, num(heroRaw.hp, cls.base.maxHp)),

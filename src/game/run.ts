@@ -3,7 +3,11 @@ import {
   LEVEL_ATTACK_PCT,
   LEVEL_HP_PCT,
   EVENT_CHANCE,
+  SHOP_BASE_COST,
+  SHOP_COST_GROWTH,
 } from './constants';
+import { RARITIES } from './types';
+import type { ShopKey } from './types';
 import { computeStats } from './stats';
 import {
   makeEnemy,
@@ -69,6 +73,7 @@ export function startRun(save: GameSave): void {
     waveInStage: 0,
     gold: 0,
     kills: 0,
+    shop: { attack: 0, hp: 0, speed: 0 },
     hero: {
       classId: cls.id,
       hp: 1,
@@ -188,6 +193,46 @@ export function rebirth(save: GameSave): void {
     die(save);
   }
   startRun(save);
+}
+
+/** Essence you'd bank by rebirthing right now (for the "when to rebirth" hint). */
+export function essenceIfRebirthNow(save: GameSave): number {
+  const best = Math.max(save.run.bestStageThisRun, save.run.stage);
+  return essenceForStage(best, essencePctFromMeta(save.meta));
+}
+
+// --- In-run gold shop (gold sink) ---
+
+export function shopCost(save: GameSave, key: ShopKey): number {
+  const lvl = save.run.shop[key];
+  return Math.ceil(SHOP_BASE_COST[key] * Math.pow(SHOP_COST_GROWTH, lvl));
+}
+
+/** Spend gold on an in-run stat upgrade. Returns true on success. */
+export function buyShop(save: GameSave, key: ShopKey): boolean {
+  const cost = shopCost(save, key);
+  if (save.run.gold < cost) return false;
+  save.run.gold -= cost;
+  save.run.shop[key] += 1;
+  recompute(save);
+  return true;
+}
+
+const RARITY_RANK = [...RARITIES].reverse(); // legendary..common
+
+/** Index of the highest-rarity relic in the current offer (auto-pick helper). */
+export function bestOfferIndex(save: GameSave): number {
+  const offer = save.run.offer ?? [];
+  let best = 0;
+  let bestRank = Infinity;
+  offer.forEach((r, i) => {
+    const rank = RARITY_RANK.indexOf(r.rarity);
+    if (rank !== -1 && rank < bestRank) {
+      bestRank = rank;
+      best = i;
+    }
+  });
+  return best;
 }
 
 export { relicDef };

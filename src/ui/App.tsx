@@ -4,8 +4,10 @@ import { GameLoop } from '../loop';
 import { loadRaw, saveRaw } from '../platform/storage';
 import { createInitialSave, deserialize, serialize, applyOffline } from '../game';
 import { useGameStore } from '../store/gameStore';
+import { setAlwaysOnTop, setOverFullscreen } from '../platform/window';
 import { TitleBar } from './TitleBar';
 import { Hud } from './Hud';
+import { RunPanel } from './RunPanel';
 import { RelicChoice } from './RelicChoice';
 import { EventModal } from './EventModal';
 import { DeathScreen } from './DeathScreen';
@@ -53,15 +55,8 @@ export default function App() {
       loop.start();
 
       const win = getCurrentWindow();
-      try {
-        if (save.meta.settings.alwaysOnTop) await win.setAlwaysOnTop(true);
-        if (save.meta.settings.overFullscreen) {
-          await win.setVisibleOnAllWorkspaces(true);
-          await win.setAlwaysOnTop(true);
-        }
-      } catch (e) {
-        console.error('[window] applying settings failed', e);
-      }
+      if (save.meta.settings.alwaysOnTop) await setAlwaysOnTop(true);
+      if (save.meta.settings.overFullscreen) await setOverFullscreen(true);
 
       unlisten.push(await win.onFocusChanged(({ payload: focused }) => loop.setFocused(focused)));
       unlisten.push(
@@ -89,6 +84,7 @@ export default function App() {
       <TitleBar onMenu={() => setMenu('meta')} onSettings={() => setMenu('settings')} />
       <canvas ref={canvasRef} className="scene" />
       <Hud />
+      <RunPanel />
       {phase === 'relic' && <RelicChoice />}
       {phase === 'event' && <EventModal />}
       {phase === 'dead' && <DeathScreen onMeta={() => setMenu('meta')} />}

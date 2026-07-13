@@ -1,7 +1,5 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useGameStore } from '../store/gameStore';
-
-const win = getCurrentWindow();
+import { setAlwaysOnTop, setOverFullscreen } from '../platform/window';
 
 export function Settings({ onClose }: { onClose: () => void }) {
   useGameStore((s) => s.screenVersion);
@@ -11,21 +9,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const st = save.meta.settings;
 
   const toggleTop = async (v: boolean) => {
-    try {
-      await win.setAlwaysOnTop(v);
-    } catch (e) {
-      console.error(e);
-    }
+    await setAlwaysOnTop(v);
     a.setAlwaysOnTop(v);
   };
-
   const toggleFull = async (v: boolean) => {
-    try {
-      await win.setVisibleOnAllWorkspaces(v);
-      if (v) await win.setAlwaysOnTop(true);
-    } catch (e) {
-      console.error(e);
-    }
+    await setOverFullscreen(v);
     a.setOverFullscreen(v);
     if (v) a.setAlwaysOnTop(true);
   };
@@ -49,6 +37,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
             onChange={toggleFull}
           />
 
+          <div className="section-label">Gameplay</div>
+          <Toggle
+            label="Auto-pick relics (after 2s)"
+            on={st.autoRelic}
+            onChange={(v) => a.setAutoRelic(v)}
+          />
+
           <div className="section-label">Leaderboard</div>
           <label className="field">
             <span>Name</span>
@@ -60,9 +55,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               onBlur={(e) => a.setPlayerName(e.target.value)}
             />
           </label>
-          <div className="modal-row sub">
-            Google sign-in &amp; friend leaderboard: wiring up next.
-          </div>
+          <div className="modal-row sub">Google sign-in &amp; friend leaderboard: wiring up next.</div>
         </div>
       </div>
     </div>

@@ -16,7 +16,7 @@
         "label": "main",
         "title": "AFK Arena",
         "width": 360,
-        "height": 210,
+        "height": 630,
         "resizable": false,
         "maximizable": false,
         "decorations": false,
