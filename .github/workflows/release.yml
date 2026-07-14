@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: release
-  cancel-in-progress: true
+  cancel-in-progress: false # queue runs — cancelling mid-publish could leave an asset-less "latest" release
 
 permissions:
   contents: write
@@ -40,7 +40,9 @@ jobs:
       - name: Restore .env
         env:
           ENV_FILE: ${{ secrets.ENV_FILE }}
-        run: printf '%s\n' "$ENV_FILE" > .env
+        run: |
+          printf '%s\n' "$ENV_FILE" > .env
+          test -s .env # a missing secret must fail loudly, not ship a build with dead OAuth
 
       - run: pnpm install --frozen-lockfile
 
@@ -59,5 +61,6 @@ jobs:
           name: AFK Arena v${{ steps.v.outputs.version }} (build ${{ github.run_number }})
           generate_release_notes: true
           make_latest: true
+          fail_on_unmatched_files: true
           files: |
             src-tauri/target/release/bundle/dmg/*.dmg

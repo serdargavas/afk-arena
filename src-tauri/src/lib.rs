@@ -81,13 +81,14 @@ fn set_always_on_top(window: WebviewWindow, on: bool) -> Result<(), String> {
 /// Explicit "over fullscreen / all Spaces" toggle (same native treatment).
 #[tauri::command]
 fn set_over_fullscreen(window: WebviewWindow, on: bool) -> Result<(), String> {
-    FLOAT_OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
     window
         .set_visible_on_all_workspaces(on)
         .map_err(|e| e.to_string())?;
     window.set_always_on_top(on).map_err(|e| e.to_string())?;
-    // Last word wins: tao's calls above reset level/behavior, so ours goes last.
+    // Last word wins: tao's calls above reset level/behavior, so ours goes last;
+    // the flag is only remembered once the native state actually changed.
     apply_float_level(&window, on);
+    FLOAT_OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 

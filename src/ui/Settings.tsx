@@ -16,6 +16,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
     await setOverFullscreen(v);
     a.setOverFullscreen(v);
     if (v) a.setAlwaysOnTop(true);
+    // Disabling the float resets the native window level — re-apply plain
+    // always-on-top if that setting is still meant to be on.
+    else if (st.alwaysOnTop) await setAlwaysOnTop(true);
   };
 
   return (
