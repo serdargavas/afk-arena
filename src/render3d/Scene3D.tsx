@@ -399,7 +399,7 @@ function Knight({ alive }: { alive: boolean }) {
   const mats = useRef<Array<THREE.MeshBasicMaterial | null>>([]); // body, sword, hands tints
   const flashMat = useRef<THREE.MeshBasicMaterial>(null);
   const shadow = useRef<THREE.Group>(null);
-  const swing = useRef({ start: -99, combo: 0 });
+  const swing = useRef<{ start: number; combo: number; evt: HitEvent | null }>({ start: -99, combo: 0, evt: null });
   const rot = useRef({ cur: 0, hist: [0, 0, 0, 0, 0, 0] });
   const hurt = useRef(0); // 1 → 0 flinch when struck
   const land = useRef(0); // 1 → 0 squash impulse at contact
@@ -416,6 +416,7 @@ function Knight({ alive }: { alive: boolean }) {
     const offHit = combatBus.on('hit', (e) => {
       swing.current.combo = comboFor(e);
       swing.current.start = now();
+      swing.current.evt = e; // replayed as a `contact` when the blade lands
     });
     const offHurt = combatBus.on('hurt', (e) => {
       if (!e.miss) hurt.current = 1;
@@ -440,7 +441,10 @@ function Knight({ alive }: { alive: boolean }) {
     const strike = raw < CONTACT ? easeOutQuart(raw / CONTACT) : 1 - easeInOut((raw - CONTACT) / (1 - CONTACT));
     // hop arcs up and lands exactly at contact (sells the slam)
     const hopArc = Math.sin(Math.PI * clamp01(raw / CONTACT)) * step.hop;
-    if (s.start > 0 && t - s.start <= DUR + 0.05 && raw >= CONTACT && raw - dt / DUR < CONTACT) land.current = 1;
+    if (s.start > 0 && t - s.start <= DUR + 0.05 && raw >= CONTACT && raw - dt / DUR < CONTACT) {
+      land.current = 1;
+      if (alive && s.evt) combatBus.emit('contact', s.evt); // blade lands → drive impact FX
+    }
     land.current = Math.max(0, land.current - dt / 0.16);
     hurt.current = Math.max(0, hurt.current - dt / 0.3);
     const sq = easeOutQuart(land.current);
@@ -624,7 +628,7 @@ function Demon({ kind }: { kind: EnemyKind }) {
   }, [tex]);
 
   useEffect(() => {
-    const offHit = combatBus.on('hit', (e) => {
+    const offHit = combatBus.on('contact', (e) => {
       if (e.miss) return;
       flash.current = 1;
       kb.current = e.double ? 0.95 : e.crit ? 0.7 : 0.45;
@@ -715,7 +719,7 @@ function SlashFX({ classId }: { classId: ClassId }) {
   const cursor = useRef(0);
 
   useEffect(() => {
-    return combatBus.on('hit', (e) => {
+    return combatBus.on('contact', (e) => {
       if (e.miss) return; // a whiff draws no slash crescent at the enemy
       const step = COMBO[comboFor(e)];
       const p = pool.current[cursor.current];
@@ -779,7 +783,7 @@ function ImpactFlash() {
   const big = useRef(1);
 
   useEffect(() => {
-    return combatBus.on('hit', (e) => {
+    return combatBus.on('contact', (e) => {
       if (e.miss) return;
       life.current = 1;
       big.current = e.double ? 2.4 : e.crit ? 1.8 : 1;
@@ -842,7 +846,7 @@ function Sparks() {
   };
 
   useEffect(() => {
-    const offHit = combatBus.on('hit', (e) => {
+    const offHit = combatBus.on('contact', (e) => {
       const step = COMBO[comboFor(e)];
       if (e.miss) return; // a whiff kicks up nothing
       burst(e.double ? 34 : e.crit ? 22 : 12, IMPACT.x, IMPACT.y, e.double ? 5 : e.crit ? 4 : 2.6, warm, 1);
@@ -954,7 +958,7 @@ function Shockwaves() {
     const offKill = combatBus.on('kill', () => {
       killLife.current = 1;
     });
-    const offHit = combatBus.on('hit', (e) => {
+    const offHit = combatBus.on('contact', (e) => {
       if (e.miss) return; // no ground-shock ring on a whiff
       if (COMBO[comboFor(e)].slam) slamLife.current = 1;
     });
@@ -1052,7 +1056,7 @@ function DamageNumbers() {
   };
 
   useEffect(() => {
-    const offHit = combatBus.on('hit', (e) => {
+    const offHit = combatBus.on('contact', (e) => {
       // normal crit = yellow, double crit (crit chance over 100%) = red, bigger + labelled
       // spawn toward the arena centre — the wide CRITICAL/DOUBLE labels must stay
       // inside the frame (spawning at the demon's x clipped them off the right edge)
@@ -1161,7 +1165,7 @@ function LifestealFX() {
   const crimson = useMemo(() => new THREE.Color('#ff2f4e'), []);
 
   useEffect(() => {
-    return combatBus.on('hit', (e) => {
+    return combatBus.on('contact', (e) => {
       if (!e.heal || e.heal < 1) return;
       heal.current = 1;
       const n = Math.min(STEAL_N, 5 + Math.round(Math.min(8, e.heal)));
@@ -1331,8 +1335,9 @@ function getBossPlateTex(): THREE.CanvasTexture {
 const HP_HIGH = new THREE.Color('#3fe06a');
 const HP_MID = new THREE.Color('#ffcf3d');
 const HP_LOW = new THREE.Color('#ff3b46');
+const HP_LAG = 0.24; // enemy bar delay ≈ Hero3D CONTACT_DELAY, so the drop lands with the number
 
-function HpBar({ x, y, frac, c, w = 1.2, shift = false, boss = false }: { x: number; y: number; frac: number; c: string; w?: number; shift?: boolean; boss?: boolean }) {
+function HpBar({ x, y, frac, c, w = 1.2, shift = false, boss = false, deferContact = false }: { x: number; y: number; frac: number; c: string; w?: number; shift?: boolean; boss?: boolean; deferContact?: boolean }) {
   const tex = useBarTexturesManaged();
   const glowTex = useGlowTex();
   const fill = useRef<THREE.Mesh>(null);
@@ -1343,11 +1348,26 @@ function HpBar({ x, y, frac, c, w = 1.2, shift = false, boss = false }: { x: num
   const slow = useRef(frac);
   const iw = w * 0.94; // inner (fill) width inside the frame
   const base = useMemo(() => new THREE.Color(c), [c]);
+  // Enemy bar lags the store HP by ~the blade wind-up (HP_LAG) so a hit's drop lands
+  // with its damage number (which fires on `contact`, ~that long after the sim hit) —
+  // a delay line rather than gating on `contact`, so continuous drains (poison/summon,
+  // combat.ts applies `passive*dt` every tick) and spawn refills stay smooth too.
+  const target = useRef(frac);
+  const pending = useRef<Array<{ at: number; v: number }>>([]);
+  const seen = useRef(frac);
 
   useFrame((_, dt) => {
     const t = now();
-    cur.current += (frac - cur.current) * Math.min(1, dt * 14);
-    slow.current += (frac - slow.current) * Math.min(1, dt * 3);
+    if (deferContact) {
+      if (frac !== seen.current) { pending.current.push({ at: t + HP_LAG, v: frac }); seen.current = frac; }
+      const q = pending.current;
+      while (q.length && t >= q[0].at) target.current = q.shift()!.v;
+    } else {
+      target.current = frac;
+    }
+    const tgt = target.current;
+    cur.current += (tgt - cur.current) * Math.min(1, dt * 14);
+    slow.current += (tgt - slow.current) * Math.min(1, dt * 3);
     const set = (m: THREE.Mesh | null, f: number) => {
       if (!m) return;
       const v = Math.max(0.001, f);
@@ -1423,7 +1443,7 @@ function CameraRig() {
   const kick = useRef(0);
   const base = useMemo(() => new THREE.Vector3(0, 2.0, 6.4), []);
   useEffect(() => {
-    const offHit = combatBus.on('hit', (e) => {
+    const offHit = combatBus.on('contact', (e) => {
       const step = COMBO[comboFor(e)];
       if (e.miss) return; // the swing happens but nothing lands
       const big = e.double || e.crit || step.slam;
@@ -1493,7 +1513,7 @@ function World() {
 
       <HpBar x={BASE_X + 0.1} y={2.5} frac={heroMax > 0 ? heroHp / heroMax : 0} c="#37d15f" shift />
       {alive && (
-        <HpBar x={DEMON_X} y={Math.min(DEMON_H * kindConf.scale + 0.3, 3.05)} frac={enemyMax > 0 ? enemyHp / enemyMax : 0} c="#ff3d57" w={enemyKind === "boss" ? 1.45 : 1.2} boss={enemyKind === "boss"} />
+        <HpBar x={DEMON_X} y={Math.min(DEMON_H * kindConf.scale + 0.3, 3.05)} frac={enemyMax > 0 ? enemyHp / enemyMax : 0} c="#ff3d57" w={enemyKind === "boss" ? 1.45 : 1.2} boss={enemyKind === "boss"} deferContact />
       )}
 
       {alive && <SlashFX classId={heroClass as ClassId} />}

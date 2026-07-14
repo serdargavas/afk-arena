@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF, useAnimations } from '@react-three/drei';
 import * as THREE from 'three';
-import { combatBus } from './bus';
+import { combatBus, type HitEvent } from './bus';
 
 // The hero is the user's Meshy.ai "cosmic ice knight" — a real rigged biped that
 // ships WITH animation clips. Its "Triple_Combo" clip bakes THREE distinct swings,
@@ -37,11 +37,14 @@ const COMBO_SEGS: Array<[number, number]> = [
   [1.15, 1.95],
   [1.95, 3.0],
 ];
-// Where the strike LANDS within each swing, as a fraction of that swing's length
-// (measured strike times 0.8 / 1.6 / 2.27s against the segment bounds above). The
-// scheduler leads the wind-up by this much so the blade contacts ON the hit rather
-// than after the hand has already started rising.
-const COMBO_CONTACT = [0.7, 0.56, 0.31];
+// Where the strike LANDS within each swing, as a fraction of that swing's length —
+// MEASURED numerically (the frame where the blade tip reaches its max reach toward
+// the enemy, sampled via mixer.setTime over each sub-clip): 0.62 / 0.47 / 0.27.
+// The hero fires a `contact` event at exactly this frame; that (not the sim's `hit`)
+// is what drives every impact FX, so the damage number lands ON the blade — no more
+// "the hit counts before the blade connects", regardless of cadence prediction.
+const COMBO_CONTACT = [0.62, 0.47, 0.27];
+const CONTACT_DELAY = 0.24; // wall-clock wind-up: sim hit → blade strikes (visible hand-rise)
 const FPS = 30; // arbitrary — cancels out; subclip only uses it to map time↔frame
 
 const DEATH_TINT = new THREE.Color('#5a6472');
@@ -78,9 +81,6 @@ export function Hero3D({ alive }: { alive: boolean }) {
       b.scale.setScalar(BLADE.scale);
       hand.add(b);
     }
-    const w = window as unknown as { __hand?: unknown; __blade?: unknown };
-    w.__hand = hand; // TEMP: timing measurement
-    w.__blade = hand?.getObjectByName('frostblade'); // TEMP
     const list: Array<{ m: THREE.MeshStandardMaterial; base: THREE.Color; emis: THREE.Color }> = [];
     hero.scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -97,7 +97,8 @@ export function Hero3D({ alive }: { alive: boolean }) {
     return list;
   }, [hero.scene, blade.scene]);
 
-  const state = useRef({ last: -99, period: 1.1, idx: 0, pending: false });
+  const state = useRef({ last: -99, period: 1.1, idx: 0 });
+  const queue = useRef<Array<{ at: number; e: HitEvent }>>([]); // pending blade-contacts (FIFO)
   const hurt = useRef(0);
   const deathRot = useRef(0);
 
@@ -105,15 +106,15 @@ export function Hero3D({ alive }: { alive: boolean }) {
   useEffect(() => {
     const onFinished = (e: { action: THREE.AnimationAction }) => e.action.fadeOut(0.3);
     mixer.addEventListener('finished', onFinished);
-    (window as unknown as { __heroMixer?: unknown }).__heroMixer = mixer; // TEMP: timing measurement
     return () => mixer.removeEventListener('finished', onFinished);
   }, [mixer]);
 
-  // A 'hit' only updates the cadence estimate now — the swing itself is launched
-  // *ahead* of the hit by the useFrame scheduler (below) so the blade's contact
-  // frame lands on the blow instead of trailing it.
+  // On a sim 'hit' we react at once: play the next combo swing and arm a `contact`
+  // to fire when the blade actually reaches its strike frame (COMBO_CONTACT into the
+  // swing). Every impact FX rides `contact`, so the damage number/spark/knockback
+  // land ON the blade — the sim hit only drives the swing + HP, never the visible hit.
   useEffect(() => {
-    const offHit = combatBus.on('hit', () => {
+    const offHit = combatBus.on('hit', (e) => {
       const s = state.current;
       const t = now();
       const delta = t - s.last;
@@ -121,7 +122,26 @@ export function Hero3D({ alive }: { alive: boolean }) {
       // steps / 2–3× speed), which would otherwise crush the EMA toward zero
       if (delta > 0.01 && delta < 3) s.period = s.period * 0.6 + delta * 0.4;
       s.last = t;
-      s.pending = false; // the next swing may now be scheduled toward the following hit
+      const i = s.idx % 3;
+      s.idx++;
+      const a = actions[`swing${i}`];
+      if (!a) return;
+      const span = a.getClip().duration;
+      // Wind-up before the strike: a readable ~CONTACT_DELAY, but always well under the
+      // attack interval so fast tempos (ranger / 2–3× speed) stay in sync and the
+      // contact queue never backs up. playback ≤ period keeps consecutive swings from
+      // piling on top of each other.
+      const target = Math.min(CONTACT_DELAY, s.period * 0.55);
+      const playback = clamp(target / COMBO_CONTACT[i], 0.16, Math.min(span, s.period));
+      a.reset();
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      a.timeScale = span / playback;
+      // blend in smoothly (a hard 0.05 snapped); the previous swing crossfades out, so
+      // the combo flows 0→1→2 instead of jumping between poses
+      a.fadeIn(0.16).play();
+      for (const other of Object.values(actions)) if (other && other !== a) other.fadeOut(0.2);
+      queue.current.push({ at: t + COMBO_CONTACT[i] * playback, e });
     });
     const offHurt = combatBus.on('hurt', (ev) => {
       if (!ev.miss) hurt.current = 1;
@@ -130,34 +150,19 @@ export function Hero3D({ alive }: { alive: boolean }) {
       offHit();
       offHurt();
     };
-  }, []);
+  }, [actions]);
 
   useFrame((_, dt) => {
     const g = group.current;
     if (!g) return;
-    const s = state.current;
-
-    // Predictive swing scheduler: once the cadence is known, launch the next swing
-    // COMBO_CONTACT-of-a-swing before the predicted next hit, so the strike frame
-    // coincides with the blow (fixes "the attack happens before the hand rises").
-    if (alive && !s.pending && s.last > 0) {
-      const i = s.idx % 3;
-      const a = actions[`swing${i}`];
-      if (a) {
-        const span = a.getClip().duration;
-        const playback = clamp(s.period * 0.9, 0.25, span); // wall-clock length of the swing
-        const lead = COMBO_CONTACT[i] * playback; // swing-start → contact
-        if (now() >= s.last + s.period - lead) {
-          a.reset();
-          a.setLoop(THREE.LoopOnce, 1);
-          a.clampWhenFinished = true;
-          a.timeScale = span / playback;
-          a.fadeIn(0.06).play();
-          for (const other of Object.values(actions)) if (other && other !== a) other.fadeOut(0.12);
-          s.idx++;
-          s.pending = true;
-        }
-      }
+    // Fire each pending blade-contact when its swing reaches the strike frame — this
+    // is what every impact FX listens to, so they land exactly on the blade. Drain in
+    // FIFO order so no hit's FX is ever dropped, even when several are due at once.
+    const q = queue.current;
+    const t = now();
+    while (q.length && t >= q[0].at) {
+      const { e } = q.shift()!;
+      if (alive) combatBus.emit('contact', e);
     }
 
     hurt.current = Math.max(0, hurt.current - dt / 0.3);
@@ -174,6 +179,7 @@ export function Hero3D({ alive }: { alive: boolean }) {
       }
     } else {
       // death: stop attacking, keel over, drain color, kill the glow
+      q.length = 0; // drop any pending contacts so no FX fire past death
       for (const a of Object.values(actions)) a?.fadeOut(0.2);
       deathRot.current += (-1.3 - deathRot.current) * Math.min(1, dt * 3);
       g.rotation.z = deathRot.current;

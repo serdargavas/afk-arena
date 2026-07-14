@@ -46,7 +46,7 @@ export function Enemy3D({ kind }: { kind: EnemyKind }) {
   }, [gltf.scene]);
 
   useEffect(() => {
-    const offHit = combatBus.on('hit', (e) => {
+    const offHit = combatBus.on('contact', (e) => {
       if (e.miss) return; // a whiff lands nothing — no knockback/flash/squash
       flash.current = 1;
       kb.current = e.double ? 0.9 : e.crit ? 0.65 : 0.42;

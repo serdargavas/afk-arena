@@ -16,7 +16,8 @@ export interface KillEvent {
 }
 
 interface Events {
-  hit: HitEvent;
+  hit: HitEvent; // the SIM landed a blow (damage applied, HP updated) — drives the hero's swing
+  contact: HitEvent; // the hero's blade actually reaches the strike frame — drives all impact FX
   hurt: HurtEvent;
   kill: KillEvent;
 }
@@ -25,6 +26,7 @@ type Handler<T> = (e: T) => void;
 class CombatBus {
   private readonly hs: { [K in keyof Events]: Set<Handler<Events[K]>> } = {
     hit: new Set(),
+    contact: new Set(),
     hurt: new Set(),
     kill: new Set(),
   };
