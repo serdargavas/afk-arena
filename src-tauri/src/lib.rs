@@ -71,41 +71,52 @@ fn apply_float_level(_window: &WebviewWindow, _on: bool) {}
 /// Keep the window above everything — including other apps' fullscreen windows.
 #[tauri::command]
 fn set_always_on_top(window: WebviewWindow, on: bool) -> Result<(), String> {
-    window.set_always_on_top(on).map_err(|e| e.to_string())?;
-    // Don't drop the fullscreen float if that setting is still on.
-    let float = on || FLOAT_OVER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed);
-    apply_float_level(&window, float);
-    Ok(())
+    let win = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let _ = win.set_always_on_top(on);
+            // Don't drop the fullscreen float if that setting is still on.
+            let float = on || FLOAT_OVER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed);
+            apply_float_level(&win, float);
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// Explicit "over fullscreen / all Spaces" toggle (same native treatment).
 #[tauri::command]
 fn set_over_fullscreen(window: WebviewWindow, on: bool) -> Result<(), String> {
-    // Regular apps' NSWindows are excluded from OTHER apps' fullscreen spaces no
-    // matter which flags they carry — only an NSPanel with the non-activating
-    // style reliably rides above them. Convert once, on first enable.
-    #[cfg(target_os = "macos")]
-    if on {
-        use cocoa::appkit::NSWindowCollectionBehavior;
-        use tauri_nspanel::WebviewWindowExt as PanelWindowExt;
-        let panel = window.to_panel().map_err(|e| e.to_string())?;
-        panel.set_style_mask(1 << 7); // NSWindowStyleMaskNonactivatingPanel
-        panel.set_level(101); // NSPopUpMenuWindowLevel
-        panel.set_collection_behaviour(
-            NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
-                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
-                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
-        );
-    }
+    // Tauri v2 runs commands on a background thread, but every AppKit call here
+    // is main-thread-only — off-main they fail silently. Hop over explicitly.
+    let win = window.clone();
     window
-        .set_visible_on_all_workspaces(on)
-        .map_err(|e| e.to_string())?;
-    window.set_always_on_top(on).map_err(|e| e.to_string())?;
-    // Last word wins: tao's calls above reset level/behavior, so ours goes last;
-    // the flag is only remembered once the native state actually changed.
-    apply_float_level(&window, on);
-    FLOAT_OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
-    Ok(())
+        .run_on_main_thread(move || {
+            // Regular apps' NSWindows are excluded from OTHER apps' fullscreen
+            // spaces no matter which flags they carry — only an NSPanel with the
+            // non-activating style reliably rides above them.
+            #[cfg(target_os = "macos")]
+            if on {
+                use cocoa::appkit::NSWindowCollectionBehavior;
+                use tauri_nspanel::WebviewWindowExt as PanelWindowExt;
+                match win.to_panel() {
+                    Ok(panel) => {
+                        panel.set_style_mask(1 << 7); // NonactivatingPanel
+                        panel.set_level(101); // NSPopUpMenuWindowLevel
+                        panel.set_collection_behaviour(
+                            NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+                                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
+                                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
+                        );
+                    }
+                    Err(e) => eprintln!("[float] to_panel failed: {e}"),
+                }
+            }
+            let _ = win.set_visible_on_all_workspaces(on);
+            let _ = win.set_always_on_top(on);
+            // Last word wins: tao's calls above reset level/behavior.
+            apply_float_level(&win, on);
+            FLOAT_OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// Snap the (frameless) window to the bottom-right corner of its monitor.
