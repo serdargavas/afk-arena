@@ -58,7 +58,7 @@ Close the window and the dragon keeps grinding from the menu bar. 🐉
 
 ## 🛠 Built with
 
-- **[Tauri 2](https://tauri.app)** — 5 MB native macOS app, menu-bar tray, Google OAuth in Rust
+- **[Tauri 2](https://tauri.app)** — native macOS app (no Electron), menu-bar tray, Google OAuth in Rust
 - **[React 19](https://react.dev) + [react-three-fiber](https://docs.pmnd.rs/react-three-fiber)** — the entire arena is a three.js scene
 - **Deterministic simulation** — fixed-timestep combat that replays identically online, offline and in tests (36 unit tests)
 - **[Supabase](https://supabase.com)** — global leaderboard
