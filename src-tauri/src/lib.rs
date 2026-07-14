@@ -11,6 +11,12 @@ use tauri_plugin_opener::OpenerExt;
 
 const SAVE_FILE: &str = "save.json";
 
+/// Whether the window should float over other apps' fullscreen spaces. Kept in
+/// Rust because tao re-asserts its own (weaker) window level/behavior on every
+/// hide/show cycle — e.g. returning from the tray — so we must re-apply ours.
+static FLOAT_OVER_FULLSCREEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 const GOOGLE_CLIENT_ID: &str = env!("GOOGLE_CLIENT_ID");
 const GOOGLE_CLIENT_SECRET: &str = env!("GOOGLE_CLIENT_SECRET");
 const AUTH_TIMEOUT_SECS: u64 = 180;
@@ -46,12 +52,14 @@ fn apply_float_level(window: &WebviewWindow, on: bool) {
     if let Ok(ptr) = window.ns_window() {
         let ns = ptr as *mut Object;
         unsafe {
-            // CanJoinAllSpaces (1<<0) | FullScreenAuxiliary (1<<8) → shows on other
-            // apps' fullscreen spaces; 0 restores default behavior.
-            let behavior: u64 = if on { (1 << 0) | (1 << 8) } else { 0 };
+            // CanJoinAllSpaces (1<<0) | Stationary (1<<4) | FullScreenAuxiliary (1<<8)
+            // → the window exists on every space, including other apps' fullscreen
+            // spaces, and doesn't get swept by Exposé; 0 restores defaults.
+            let behavior: u64 = if on { (1 << 0) | (1 << 4) | (1 << 8) } else { 0 };
             let _: () = msg_send![ns, setCollectionBehavior: behavior];
-            // NSStatusWindowLevel (25) floats above almost everything; 0 = normal.
-            let level: i64 = if on { 25 } else { 0 };
+            // NSPopUpMenuWindowLevel (101): reliably above fullscreen apps
+            // (NSStatusWindowLevel 25 can end up beneath them); 0 = normal.
+            let level: i64 = if on { 101 } else { 0 };
             let _: () = msg_send![ns, setLevel: level];
         }
     }
@@ -64,17 +72,21 @@ fn apply_float_level(_window: &WebviewWindow, _on: bool) {}
 #[tauri::command]
 fn set_always_on_top(window: WebviewWindow, on: bool) -> Result<(), String> {
     window.set_always_on_top(on).map_err(|e| e.to_string())?;
-    apply_float_level(&window, on);
+    // Don't drop the fullscreen float if that setting is still on.
+    let float = on || FLOAT_OVER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed);
+    apply_float_level(&window, float);
     Ok(())
 }
 
 /// Explicit "over fullscreen / all Spaces" toggle (same native treatment).
 #[tauri::command]
 fn set_over_fullscreen(window: WebviewWindow, on: bool) -> Result<(), String> {
+    FLOAT_OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
     window
         .set_visible_on_all_workspaces(on)
         .map_err(|e| e.to_string())?;
     window.set_always_on_top(on).map_err(|e| e.to_string())?;
+    // Last word wins: tao's calls above reset level/behavior, so ours goes last.
     apply_float_level(&window, on);
     Ok(())
 }
@@ -310,6 +322,12 @@ fn show_main(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
         let _ = win.set_focus();
+        // Showing re-asserts tao's cached window state, which wipes the native
+        // over-fullscreen flags — put them back if the setting is on.
+        if FLOAT_OVER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = win.set_visible_on_all_workspaces(true);
+            apply_float_level(&win, true);
+        }
     }
 }
 
