@@ -349,6 +349,23 @@ pub fn run() {
                 position_bottom_right(&win);
                 let _ = win.show(); // config starts hidden to avoid a corner "jump"
             }
+            // Float guard: AppKit/tao can silently reset our window level and
+            // collection behavior on space switches, focus changes and shows.
+            // While the over-fullscreen setting is on, re-assert the native
+            // flags every 1.5s on the main thread — whatever wiped them loses.
+            if let Some(win) = app.get_webview_window("main") {
+                let guard_win = win.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    if FLOAT_OVER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) {
+                        let w = guard_win.clone();
+                        let _ = guard_win.run_on_main_thread(move || {
+                            apply_float_level(&w, true);
+                        });
+                    }
+                });
+            }
+
             // Menu-bar dragon: left-click toggles the window back, right-click menus.
             let show = tauri::menu::MenuItem::with_id(app, "show", "Show Game", true, None::<&str>)?;
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
