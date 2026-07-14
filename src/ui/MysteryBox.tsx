@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
-import { relicDef } from '../game';
+import { relicDef, PITY_BOX_GUARANTEE, RARITIES } from '../game';
 import type { Rarity } from '../game';
 
 // Stage-clear mystery box: no choices — the box shakes and glows in its rolled
@@ -68,6 +68,14 @@ export function MysteryBox() {
           </div>
           <div className="box-label">Mystery Box</div>
           <div className="box-tap">tap to open</div>
+          <div className="pity-line">
+            {RARITIES.indexOf(rarity) >= RARITIES.indexOf('epic')
+              ? '✨ pity reset'
+              : (() => {
+                  const left = PITY_BOX_GUARANTEE - (save?.meta.pity ?? 0);
+                  return `✨ epic+ guaranteed in ${left} ${left === 1 ? 'box' : 'boxes'}`;
+                })()}
+          </div>
         </div>
       ) : (
         <div className={`box-reveal rr-${rarity}`}>

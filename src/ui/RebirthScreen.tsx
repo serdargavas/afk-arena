@@ -4,8 +4,9 @@ import { META_NODES, nextNodeCost, CLASS_LIST } from '../game';
 import { formatNum } from './format';
 import { SkillTree } from './SkillTree';
 import { Equipment } from './Equipment';
+import { Codex } from './Codex';
 
-type Tab = 'meta' | 'skills' | 'gear';
+type Tab = 'meta' | 'skills' | 'gear' | 'codex';
 
 export function RebirthScreen({ onClose, initialTab = 'meta' }: { onClose: () => void; initialTab?: Tab }) {
   useGameStore((s) => s.screenVersion);
@@ -18,6 +19,9 @@ export function RebirthScreen({ onClose, initialTab = 'meta' }: { onClose: () =>
   const phase = useGameStore((s) => s.phase);
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState<Tab>(initialTab);
+  const badgeMeta = useGameStore((s) => s.badgeMeta);
+  const badgeSkills = useGameStore((s) => s.badgeSkills);
+  const badgeGear = useGameStore((s) => s.badgeGear);
   if (!save) return null;
   const meta = save.meta;
   const dead = phase === 'dead';
@@ -36,12 +40,18 @@ export function RebirthScreen({ onClose, initialTab = 'meta' }: { onClose: () =>
         <div className="tab-row">
           <button className={`tab ${tab === 'meta' ? 'sel' : ''}`} onClick={() => setTab('meta')}>
             Meta
+            {badgeMeta > 0 && <span className="tab-badge">{badgeMeta > 9 ? '9+' : badgeMeta}</span>}
           </button>
           <button className={`tab ${tab === 'skills' ? 'sel' : ''}`} onClick={() => setTab('skills')}>
             Skills
+            {badgeSkills > 0 && <span className="tab-badge">{badgeSkills > 9 ? '9+' : badgeSkills}</span>}
           </button>
           <button className={`tab ${tab === 'gear' ? 'sel' : ''}`} onClick={() => setTab('gear')}>
             Gear
+            {badgeGear > 0 && <span className="tab-badge">{badgeGear > 9 ? '9+' : badgeGear}</span>}
+          </button>
+          <button className={`tab ${tab === 'codex' ? 'sel' : ''}`} onClick={() => setTab('codex')}>
+            Codex
           </button>
         </div>
 
@@ -100,6 +110,7 @@ export function RebirthScreen({ onClose, initialTab = 'meta' }: { onClose: () =>
           )}
           {tab === 'skills' && <SkillTree />}
           {tab === 'gear' && <Equipment />}
+          {tab === 'codex' && <Codex />}
         </div>
 
         {tab === 'meta' && (

@@ -48,12 +48,12 @@ export function RunPanel() {
 
       <div className="panel-label">Stats</div>
       <div className="stat-grid">
-        <Stat k="DMG" v={formatNum(Math.round(s.attack))} />
-        <Stat k="SPD" v={`${s.attackSpeed.toFixed(2)}/s`} />
-        <Stat k="DPS" v={formatNum(dps)} />
-        <Stat k="CRIT" v={`${Math.round(s.critChance * 100)}%`} />
-        <Stat k="ARMOR" v={`${Math.round(s.armor)}`} />
-        <Stat k="LIFE" v={`${Math.round(s.lifesteal * 100)}%`} />
+        <Stat k="⚔ DMG" v={formatNum(Math.round(s.attack))} />
+        <Stat k="⚡ SPD" v={`${s.attackSpeed.toFixed(2)}/s`} />
+        <Stat k="🔥 DPS" v={formatNum(dps)} />
+        <Stat k="🎯 CRIT" v={`${Math.round(s.critChance * 100)}%`} />
+        <Stat k="🛡 ARMOR" v={`${Math.round(s.armor)}`} />
+        <Stat k="🩸 LIFE" v={`${Math.round(s.lifesteal * 100)}%`} />
       </div>
 
       <div className="panel-label">Relics · {relics.length}</div>

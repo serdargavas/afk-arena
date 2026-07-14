@@ -109,6 +109,7 @@ export interface RunState {
   bestStageThisRun: number;
   essenceOnDeath: number; // essence awarded when this run ended (for the death screen)
   dropUid: number | null; // item uid dropped on death (shown on the death screen)
+  spawnGrace: number; // seconds of ceasefire while the next enemy walks in
 }
 
 export interface Settings {
@@ -117,6 +118,21 @@ export interface Settings {
   autoRelic: boolean; // auto-pick a relic after AUTO_RELIC_DELAY_MS (see constants)
   autoBuy: boolean; // auto-spend gold on shop upgrades as it comes in
   gameSpeed: number; // sim speed multiplier: 1, 2, or 3
+}
+
+/** Daily-quest counters + login streak. `day` is the local date the counters
+ *  belong to; a new day resets them (streak fields survive rollover). */
+export interface DailyState {
+  day: string; // local YYYY-MM-DD
+  kills: number;
+  stages: number;
+  boxes: number;
+  rebirths: number;
+  shopBuys: number;
+  activeSeconds: number;
+  claimed: number[]; // milestone point-thresholds already claimed today
+  streak: number; // total streak days claimed (calendar slot = streak % 7)
+  lastStreakDay: string; // local day the streak chest was last claimed ('' = never)
 }
 
 export interface MetaState {
@@ -132,6 +148,10 @@ export interface MetaState {
   bestEssence: number;
   totalRebirths: number;
   settings: Settings;
+  daily: DailyState;
+  pity: number; // mystery boxes opened since the last epic+ (guarantee counter)
+  codex: Record<string, number>; // relicId -> best rarity index ever obtained
+  seenItemUid: number; // highest item uid the player has viewed in the Gear tab
   // leaderboard identity (wired to Supabase later; empty by default)
   playerId: string;
   playerName: string;
@@ -165,6 +185,10 @@ export interface UISnapshot {
   relicCount: number;
   bestStage: number;
   essenceIfRebirth: number; // essence you'd bank by rebirthing right now
+  dailyClaimable: number; // claimable daily milestones + streak chest (badge count)
+  badgeMeta: number; // meta nodes affordable right now
+  badgeSkills: number; // unspent skill points
+  badgeGear: number; // items dropped since the Gear tab was last closed (seen)
 }
 
 export interface OfflineReport {

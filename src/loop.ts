@@ -19,7 +19,12 @@ import {
   bestOfferIndex,
   essenceIfRebirthNow,
   recomputeClamp,
+  claimDailyMilestone,
+  claimStreakDay,
+  claimableMilestones,
+  streakClaimable,
 } from './game/run';
+import { bumpDaily, dailyPoints } from './game/content/daily';
 import {
   buyNode,
   selectClass,
@@ -27,7 +32,11 @@ import {
   respecSkills,
   equipItem,
   unequipItem,
+  skillsAllocated,
+  nextNodeCost,
 } from './game/meta';
+import { META_NODES } from './game/content/metaNodes';
+import { SKILL_POINTS } from './game/constants';
 import { expectedDps } from './game/stats';
 import { biomeName } from './game/progression';
 import type { GameSave, UISnapshot, ClassId, ShopKey, SlotId } from './game/types';
@@ -55,6 +64,16 @@ function snapshotOf(save: GameSave): UISnapshot {
     relicCount: run.relics.length,
     bestStage: save.meta.bestStage,
     essenceIfRebirth: essenceIfRebirthNow(save),
+    dailyClaimable:
+      run.phase === 'dead'
+        ? 0 // claims are locked while the hero is down (rebirth first)
+        : claimableMilestones(save).length + (streakClaimable(save, save.lastSeen) ? 1 : 0),
+    badgeMeta: META_NODES.filter((n) => {
+      const c = nextNodeCost(save, n.id);
+      return c !== null && save.meta.essence >= c;
+    }).length,
+    badgeSkills: Math.max(0, SKILL_POINTS - skillsAllocated(save)),
+    badgeGear: save.meta.inventory.filter((it) => it.uid > save.meta.seenItemUid).length,
   };
 }
 
@@ -83,6 +102,8 @@ function screenKeyOf(save: GameSave): string {
     m.settings.gameSpeed,
     `${r.shop.attack}.${r.shop.hp}.${r.shop.speed}`,
     m.playerName,
+    `${m.daily.day}.${dailyPoints(m.daily)}.${m.daily.claimed.join('|')}.${m.daily.streak}.${m.daily.lastStreakDay}`,
+    `${m.pity}.${Object.keys(m.codex).length}`,
   ].join('~');
 }
 
@@ -149,7 +170,9 @@ export class GameLoop {
 
     if (this.save.run.phase === 'fighting') {
       if (realDelta > BULK_CATCHUP_THRESHOLD_MS) {
-        // Long stall / minimize / sleep — fold in analytically (auto-plays relics).
+        // Long stall / minimize / sleep — even while focused, catch-up runs in
+        // safe-farm mode (deliberate: a stall must never advance into a wall or
+        // kill the hero while nobody was watching the fight).
         applyOffline(this.save, realDelta / 1000);
         this.acc = 0;
       } else if (realDelta > 0) {
@@ -158,10 +181,13 @@ export class GameLoop {
       }
       let steps = 0;
       while (this.acc >= TICK_DT_MS && steps < MAX_STEPS_PER_FRAME && this.save.run.phase === 'fighting') {
-        this.emit(stepSim(this.save));
+        this.emit(stepSim(this.save, this.afk));
         this.acc -= TICK_DT_MS;
         this.simTime += TICK_DT;
         steps++;
+      }
+      if (this.focused && realDelta > 0 && realDelta < BULK_CATCHUP_THRESHOLD_MS) {
+        bumpDaily(this.save, 'activeSeconds', realDelta / 1000);
       }
       if (steps >= MAX_STEPS_PER_FRAME) this.acc = 0;
       if (this.save.meta.settings.autoBuy) this.autoSpend();
@@ -180,15 +206,13 @@ export class GameLoop {
         this.relicSince = 0;
         if (p === 'relic') this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
         else this.act(() => resolveEvent(this.save, 0));
-      } else if (this.save.meta.settings.autoRelic) {
+      } else if (p === 'event' && this.save.meta.settings.autoRelic) {
+        // Only events need the timer — the mystery box always finishes itself,
+        // and racing it here would cut the epic/legendary reveal short.
         if (this.relicSince === 0) this.relicSince = now;
         else if (now - this.relicSince >= AUTO_RELIC_DELAY_MS) {
           this.relicSince = 0;
-          if (this.save.run.phase === 'relic') {
-            this.act(() => pickRelic(this.save, bestOfferIndex(this.save)));
-          } else {
-            this.act(() => resolveEvent(this.save, 0));
-          }
+          this.act(() => resolveEvent(this.save, 0));
         }
       }
     } else {
@@ -275,6 +299,11 @@ export class GameLoop {
       setAutoBuy: (v) => this.act(() => { this.save.meta.settings.autoBuy = v; }),
       setGameSpeed: (n) => this.act(() => { this.save.meta.settings.gameSpeed = [1, 2, 3].includes(n) ? n : 1; }),
       setPlayerName: (name) => this.act(() => { this.save.meta.playerName = name.slice(0, 24); }),
+      claimDailyMilestone: (m: number) => this.act(() => { claimDailyMilestone(this.save, m); }),
+      claimStreakDay: () => this.act(() => { claimStreakDay(this.save); }),
+      markGearSeen: () => this.act(() => {
+        this.save.meta.seenItemUid = Math.max(0, this.save.meta.itemSeq - 1);
+      }),
     };
   }
 }

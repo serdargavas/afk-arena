@@ -5,9 +5,10 @@ export const TICK_RATE = 10;
 export const TICK_DT = 1 / TICK_RATE; // 0.1s
 export const TICK_DT_MS = 1000 / TICK_RATE; // 100ms
 export const MAX_STEPS_PER_FRAME = 5; // spiral-of-death guard (<=500ms/frame)
-// Kept == MAX_STEPS_PER_FRAME*TICK_DT_MS so no real-time gap is dropped between
-// the accumulator ceiling and the bulk path (review finding #4).
-export const BULK_CATCHUP_THRESHOLD_MS = 500;
+// Gaps under this are simmed normally (capped at MAX_STEPS_PER_FRAME per frame,
+// so a slow device progresses slower than real-time instead of never); only
+// genuinely long stalls (sleep/minimize) fold into the safe-farm bulk path.
+export const BULK_CATCHUP_THRESHOLD_MS = 5000;
 export const MAX_ATTACKS_PER_TICK = 20; // per-side combat loop guard (finding #2 class)
 
 // --- Offline progression ---
@@ -21,6 +22,9 @@ export const UNFOCUSED_FRAME_INTERVAL_MS = 100; // ~10fps when blurred (sim keep
 
 // --- Progression ---
 export const STAGE_KILLS = 8; // enemies to clear a stage (last one is elite/boss)
+export const SPAWN_GRACE = 0.5; // ceasefire (s) while the next enemy makes its entrance
+export const MISS_CHANCE = 0.1; // both sides can whiff an attack
+export const DMG_VARIANCE = 0.1; // damage rolls ±10% around the computed value
 export const BIOME_STAGES = 5; // stages per biome before it cycles
 export const BOSS_EVERY = 5; // the final enemy of every Nth stage is a boss
 export const ELITE_CHANCE = 0.16; // chance a mid-stage enemy is an elite
@@ -92,5 +96,6 @@ export const ESSENCE_STAGE_POW = 1.5;
 
 // --- Misc ---
 export const RELIC_EVERY_STAGES = 3; // a mystery box drops on every Nth stage clear
+export const PITY_BOX_GUARANTEE = 10; // every Nth box is guaranteed epic or better
 export const SAVE_VERSION = 2;
 export const DEFAULT_SEED = 0x9e3779b9;

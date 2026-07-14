@@ -70,8 +70,8 @@ describe('crit tiers + lifesteal', () => {
       s.run.stats.critChance = 1.4; // guaranteed crit + 40% double
       s.run.stats.attack = 9999; // one-shot enemies → lots of hits fast
       const e = stepSim(s);
-      if (e.hit) {
-        expect(e.hit.crit).toBe(true); // ≥100% ⇒ every hit crits
+      if (e.hit && !e.hit.miss) {
+        expect(e.hit.crit).toBe(true); // ≥100% ⇒ every landed hit crits (misses roll first)
         if (e.hit.double) dbl++;
         else crit++;
       }

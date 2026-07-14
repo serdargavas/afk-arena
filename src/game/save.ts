@@ -6,6 +6,7 @@ import { relicDef } from './content/relics';
 import { CLASSES } from './content/classes';
 import { META_BY_ID } from './content/metaNodes';
 import { SKILL_BY_ID } from './content/skills';
+import { freshDaily, dayKey } from './content/daily';
 import { EVENT_BY_ID } from './content/events';
 import { SKILL_POINTS } from './constants';
 import { RARITIES, SLOT_IDS } from './types';
@@ -46,6 +47,10 @@ export function createInitialSave(now: number, seed: number = DEFAULT_SEED): Gam
       bestEssence: 0,
       totalRebirths: 0,
       settings: { alwaysOnTop: false, overFullscreen: false, autoRelic: false, autoBuy: false, gameSpeed: 1 },
+      daily: freshDaily(dayKey(now)),
+      pity: 0,
+      codex: {},
+      seenItemUid: 0,
       playerId: '',
       playerName: '',
     },
@@ -196,9 +201,39 @@ function sanitizeMeta(m: Record<string, unknown> | undefined): MetaState {
       autoBuy: !!s.autoBuy,
       gameSpeed: [1, 2, 3].includes(Number(s.gameSpeed)) ? Number(s.gameSpeed) : 1,
     },
+    daily: sanitizeDaily(m?.daily),
+    pity: clamp(Math.floor(num(m?.pity, 0)), 0, 1000),
+    codex: sanitizeCodex(m?.codex),
+    seenItemUid: Math.max(0, Math.floor(num(m?.seenItemUid, 0))),
     playerId: typeof m?.playerId === 'string' ? m.playerId : '',
     playerName: typeof m?.playerName === 'string' ? m.playerName : '',
   };
+}
+
+function sanitizeCodex(v: unknown): Record<string, number> {
+  const raw = (v ?? {}) as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  for (const [k, val] of Object.entries(raw)) {
+    if (relicDef(k) && typeof val === 'number' && Number.isFinite(val)) {
+      out[k] = clamp(Math.floor(val), 0, RARITIES.length - 1);
+    }
+  }
+  return out;
+}
+
+function sanitizeDaily(v: unknown): MetaState['daily'] {
+  const raw = (v ?? {}) as Record<string, unknown>;
+  const d = freshDaily(typeof raw.day === 'string' ? raw.day : '');
+  d.kills = Math.max(0, num(raw.kills, 0));
+  d.stages = Math.max(0, num(raw.stages, 0));
+  d.boxes = Math.max(0, num(raw.boxes, 0));
+  d.rebirths = Math.max(0, num(raw.rebirths, 0));
+  d.shopBuys = Math.max(0, num(raw.shopBuys, 0));
+  d.activeSeconds = Math.max(0, num(raw.activeSeconds, 0));
+  d.claimed = Array.isArray(raw.claimed) ? raw.claimed.filter((x): x is number => typeof x === 'number') : [];
+  d.streak = Math.max(0, Math.floor(num(raw.streak, 0)));
+  d.lastStreakDay = typeof raw.lastStreakDay === 'string' ? raw.lastStreakDay : '';
+  return d;
 }
 
 function sanitizeRelics(v: unknown): RelicInstance[] {
@@ -247,8 +282,13 @@ function sanitizeRun(r: Record<string, unknown> | undefined, save: GameSave): Ru
   const waveInStage = clamp(Math.floor(num(r?.waveInStage, 0)), 0, STAGE_KILLS - 1);
 
   const relics = sanitizeRelics(r?.relics);
+  // Legacy saves could carry a pending 3-choice offer; the mystery box shows
+  // exactly one relic, so keep only the best of them (what auto-pick would take).
   const offerRaw = sanitizeRelics(r?.offer);
-  const offer = offerRaw.length > 0 ? offerRaw : null;
+  const bestOffer = [...offerRaw].sort(
+    (a, b) => RARITIES.indexOf(b.rarity) - RARITIES.indexOf(a.rarity),
+  )[0];
+  const offer = bestOffer ? [bestOffer] : null;
 
   let phase: RunPhase = ['fighting', 'relic', 'event', 'dead'].includes(r?.phase as string)
     ? (r!.phase as RunPhase)
@@ -286,5 +326,6 @@ function sanitizeRun(r: Record<string, unknown> | undefined, save: GameSave): Ru
     bestStageThisRun: Math.max(stage, Math.floor(num(r?.bestStageThisRun, stage))),
     essenceOnDeath: Math.max(0, num(r?.essenceOnDeath, 0)),
     dropUid: typeof r?.dropUid === 'number' && Number.isFinite(r.dropUid) ? r.dropUid : null,
+    spawnGrace: 0,
   };
 }

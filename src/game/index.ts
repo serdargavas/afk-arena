@@ -10,7 +10,7 @@ export * from './save';
 export { Rng, nextRandom, seedFrom } from './rng';
 export { CLASSES, CLASS_LIST } from './content/classes';
 export type { ClassDef } from './content/classes';
-export { RELICS, RELIC_BY_ID, relicDef } from './content/relics';
+export { RELICS, RELIC_BY_ID, relicDef, ARCHETYPE_SET_BONUS } from './content/relics';
 export { BIOMES, biomeForStage } from './content/biomes';
 export type { BiomeDef } from './content/biomes';
 export { META_NODES, META_BY_ID, nodeCost } from './content/metaNodes';

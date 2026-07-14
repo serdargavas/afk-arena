@@ -5,9 +5,11 @@ export interface HitEvent {
   crit: boolean;
   double?: boolean; // double crit — rolled when crit chance overflows past 100%
   heal?: number; // HP actually gained from lifesteal on this hit (0 if none / at full HP)
+  miss?: boolean; // the swing whiffed — no damage, no impact juice
 }
 export interface HurtEvent {
   damage: number;
+  miss?: boolean;
 }
 export interface KillEvent {
   gold: number;

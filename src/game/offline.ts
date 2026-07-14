@@ -5,9 +5,10 @@ import type { GameSave, OfflineReport, RunPhase } from './types';
 
 /**
  * Catch up for time spent away (closed / minimized / stalled). Replays the real
- * combat step so offline progress is exactly consistent with live play, but
- * auto-picks relics/events and is bounded by both a time budget and an
- * iteration cap. Stops at death (the player returns to the death screen).
+ * combat step in safe-farm mode: the hero grinds the current enemy for gold and
+ * kills but never advances or dies (away time can't end the run). Pending
+ * relic/event choices left open are auto-resolved. Bounded by a time budget and
+ * an iteration cap.
  */
 export function applyOffline(save: GameSave, elapsedSeconds: number): OfflineReport {
   const empty: OfflineReport = {
@@ -41,9 +42,8 @@ export function applyOffline(save: GameSave, elapsedSeconds: number): OfflineRep
     // stepSim call (the phase can flip to 'dead' inside it).
     const phase: RunPhase = save.run.phase;
     if (phase === 'fighting') {
-      stepSim(save);
+      stepSim(save, true); // away = safe farm: never dies, never over-extends
       simulated += TICK_DT;
-      if ((save.run.phase as RunPhase) === 'dead') died = true;
     } else if (phase === 'relic') {
       pickRelic(save, bestOfferIndex(save));
     } else if (phase === 'event') {

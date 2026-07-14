@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { SLOT_DEFS, SLOT_IDS, itemName, itemPower } from '../game';
 import type { ItemInstance, RelicMods, SlotId } from '../game/types';
@@ -32,9 +33,13 @@ export function Equipment() {
   const save = useGameStore((s) => s.save);
   const equip = useGameStore((s) => s.actions.equipItem);
   const unequip = useGameStore((s) => s.actions.unequipItem);
+  const markGearSeen = useGameStore((s) => s.actions.markGearSeen);
+  // NEW tags stay visible while you browse; leaving the tab marks them seen.
+  useEffect(() => () => markGearSeen(), [markGearSeen]);
   if (!save) return null;
 
   const { inventory, equipped } = save.meta;
+  const seenUid = save.meta.seenItemUid;
   const byUid = (uid: number | null) =>
     uid == null ? null : inventory.find((it) => it.uid === uid) ?? null;
   const sorted = [...inventory].sort((a, b) => itemPower(b) - itemPower(a));
@@ -77,7 +82,8 @@ export function Equipment() {
               <span className="item-ico">{SLOT_DEFS[it.slot].icon}</span>
               <span className="item-main">
                 <span className="item-name">
-                  {itemName(it)} {isEq && <span className="item-eq">equipped</span>}
+                  {itemName(it)} {it.uid > seenUid && <span className="item-new">NEW</span>}{' '}
+                  {isEq && <span className="item-eq">equipped</span>}
                 </span>
                 <span className="item-mods">{formatMods(it.mods)}</span>
               </span>

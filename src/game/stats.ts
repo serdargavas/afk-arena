@@ -1,8 +1,8 @@
-import type { GameSave, Stats, RelicInstance, RelicMods } from './types';
+import type { Archetype, GameSave, Stats, RelicInstance, RelicMods } from './types';
 import { SLOT_IDS } from './types';
 import { RARITY_MULT, SHOP_ATTACK_PCT, SHOP_HP_PCT, SHOP_SPEED_PCT } from './constants';
 import { CLASSES } from './content/classes';
-import { relicDef } from './content/relics';
+import { relicDef, RELICS, ARCHETYPE_SET_BONUS } from './content/relics';
 import { META_NODES } from './content/metaNodes';
 import { SKILL_BY_ID } from './content/skills';
 
@@ -75,6 +75,16 @@ function addItems(acc: Accum, save: GameSave): void {
   }
 }
 
+/** Completed codex archetypes (every relic discovered) grant permanent bonuses. */
+function addCodexSets(acc: Accum, codex: Record<string, number>): void {
+  for (const arch of Object.keys(ARCHETYPE_SET_BONUS) as Archetype[]) {
+    const all = RELICS.filter((r) => r.archetype === arch);
+    if (all.length > 0 && all.every((r) => codex[r.id] !== undefined)) {
+      addMods(acc, ARCHETYPE_SET_BONUS[arch].mods, 1);
+    }
+  }
+}
+
 function addMeta(acc: Accum, nodes: Record<string, number>): void {
   for (const def of META_NODES) {
     const lvl = nodes[def.id] ?? 0;
@@ -102,11 +112,14 @@ export function computeStats(save: GameSave): Stats {
   addSkills(acc, save.meta.skills);
   addItems(acc, save);
   for (const r of run.relics) addRelic(acc, r);
+  addCodexSets(acc, save.meta.codex);
 
   const shop = run.shop;
   const attackPct = acc.attackPct + run.hero.bonusAttackPct + SHOP_ATTACK_PCT * shop.attack;
   const maxHpPct = acc.maxHpPct + run.hero.bonusMaxHpPct + SHOP_HP_PCT * shop.hp;
-  const attackSpeedPct = acc.attackSpeedPct + SHOP_SPEED_PCT * shop.speed;
+  // every attack-speed source (relics/skills/items/meta/codex/shop) was ~40% too
+  // strong, so scale the whole bonus down by 40% — base class speed is untouched.
+  const attackSpeedPct = (acc.attackSpeedPct + SHOP_SPEED_PCT * shop.speed) * 0.6;
 
   return {
     maxHp: Math.max(1, Math.round(base.maxHp * (1 + maxHpPct))),

@@ -4,6 +4,9 @@ import { Stars, Billboard, useTexture } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
+import { Hero3D, TrialLights } from './Hero3D';
+import { Enemy3D } from './Enemy3D';
+import { Arena3D } from './Arena3D';
 import { combatBus, type HitEvent } from './bus';
 import { UNFOCUSED_FRAME_INTERVAL_MS } from '../game/constants';
 import { formatNum } from '../ui/format';
@@ -414,8 +417,8 @@ function Knight({ alive }: { alive: boolean }) {
       swing.current.combo = comboFor(e);
       swing.current.start = now();
     });
-    const offHurt = combatBus.on('hurt', () => {
-      hurt.current = 1;
+    const offHurt = combatBus.on('hurt', (e) => {
+      if (!e.miss) hurt.current = 1;
     });
     return () => {
       offHit();
@@ -622,12 +625,13 @@ function Demon({ kind }: { kind: EnemyKind }) {
 
   useEffect(() => {
     const offHit = combatBus.on('hit', (e) => {
+      if (e.miss) return;
       flash.current = 1;
       kb.current = e.double ? 0.95 : e.crit ? 0.7 : 0.45;
       squash.current = 1;
     });
     const offKill = combatBus.on('kill', () => {
-      pop.current = 1; // the next fiend claws its way in
+      pop.current = 1; // the next fiend strides in from off-screen (spawn grace)
     });
     return () => {
       offHit();
@@ -642,7 +646,7 @@ function Demon({ kind }: { kind: EnemyKind }) {
     const t = now();
     kb.current *= Math.pow(0.002, dt);
     squash.current = Math.max(0, squash.current - dt / 0.18);
-    pop.current = Math.max(0, pop.current - dt / 0.4);
+    pop.current = Math.max(0, pop.current - dt / 0.5); // matches SPAWN_GRACE
     flash.current = Math.max(0, flash.current - dt / 0.12);
 
     const sq = easeOutQuart(squash.current);
@@ -650,7 +654,9 @@ function Demon({ kind }: { kind: EnemyKind }) {
 
     // The fiend stands its ground — no idle breathing or sway. It only reacts to
     // blows it takes: knockback + squash below, plus the hit flash further down.
-    g.position.x = DEMON_X + kb.current;
+    // entrance: stride in from the right while the sim holds its ceasefire
+    const entry = easeInOut(1 - pop.current);
+    g.position.x = DEMON_X + kb.current + (1 - entry) * 2.6;
     g.rotation.z = kb.current * 0.3;
     bd.scale.set(conf.scale * (1 + sq * 0.16) * spawn, conf.scale * (1 - sq * 0.2) * spawn, 1);
     bd.rotation.z = 0;
@@ -710,6 +716,7 @@ function SlashFX({ classId }: { classId: ClassId }) {
 
   useEffect(() => {
     return combatBus.on('hit', (e) => {
+      if (e.miss) return; // a whiff draws no slash crescent at the enemy
       const step = COMBO[comboFor(e)];
       const p = pool.current[cursor.current];
       cursor.current = (cursor.current + 1) % SLASH_N;
@@ -773,6 +780,7 @@ function ImpactFlash() {
 
   useEffect(() => {
     return combatBus.on('hit', (e) => {
+      if (e.miss) return;
       life.current = 1;
       big.current = e.double ? 2.4 : e.crit ? 1.8 : 1;
     });
@@ -836,10 +844,12 @@ function Sparks() {
   useEffect(() => {
     const offHit = combatBus.on('hit', (e) => {
       const step = COMBO[comboFor(e)];
+      if (e.miss) return; // a whiff kicks up nothing
       burst(e.double ? 34 : e.crit ? 22 : 12, IMPACT.x, IMPACT.y, e.double ? 5 : e.crit ? 4 : 2.6, warm, 1);
       if (step.slam) burst(14, IMPACT.x - 0.4, 0.15, 2.2, warm, 0); // dust kicked off the ground
     });
-    const offHurt = combatBus.on('hurt', () => {
+    const offHurt = combatBus.on('hurt', (e) => {
+      if (e.miss) return;
       burst(10, BASE_X + 0.3, 1.2, 2.4, red, -1); // hero blood-sparks fly backward
     });
     const offKill = combatBus.on('kill', () => {
@@ -892,8 +902,8 @@ function HurtSlashes() {
   const life = useRef(0);
 
   useEffect(() => {
-    return combatBus.on('hurt', () => {
-      life.current = 1;
+    return combatBus.on('hurt', (e) => {
+      if (!e.miss) life.current = 1;
     });
   }, []);
 
@@ -945,6 +955,7 @@ function Shockwaves() {
       killLife.current = 1;
     });
     const offHit = combatBus.on('hit', (e) => {
+      if (e.miss) return; // no ground-shock ring on a whiff
       if (COMBO[comboFor(e)].slam) slamLife.current = 1;
     });
     return () => {
@@ -1042,18 +1053,20 @@ function DamageNumbers() {
 
   useEffect(() => {
     const offHit = combatBus.on('hit', (e) => {
-      // crit numbers are red now; a double crit (crit chance over 100%) is bigger + labelled
+      // normal crit = yellow, double crit (crit chance over 100%) = red, bigger + labelled
       // spawn toward the arena centre — the wide CRITICAL/DOUBLE labels must stay
       // inside the frame (spawning at the demon's x clipped them off the right edge)
-      if (e.double) spawn('DOUBLE CRIT', formatNum(e.damage), 0.55, 2.15, '#ff2a2a', 1.6);
-      else if (e.crit) spawn('CRITICAL', formatNum(e.damage), 0.7, 2.1, '#ff3b3b', 1.35);
+      if (e.miss) spawn('', 'MISS', 0.9, 2.1, '#8f8aa8', 0.85);
+      else if (e.double) spawn('DOUBLE CRIT', formatNum(e.damage), 0.55, 2.15, '#ff2a2a', 1.6);
+      else if (e.crit) spawn('CRITICAL', formatNum(e.damage), 0.7, 2.1, '#ffd23b', 1.35);
       else spawn('', formatNum(e.damage), 0.9, 2.1, '#ffffff', 1);
       // lifesteal: green heal number floats off the knight (fractional heals would
       // render as a distracting "+0" — formatNum floors below 1 — so gate at 1 HP)
       if (e.heal && e.heal >= 1) spawn('', `+${formatNum(e.heal)}`, BASE_X + 0.7, 1.7, '#57ff93', 0.9);
     });
     const offHurt = combatBus.on('hurt', (e) => {
-      spawn('', `-${formatNum(e.damage)}`, BASE_X + 0.65, 2.0, '#ff7a7a', 0.95);
+      if (e.miss) spawn('', 'MISS', BASE_X + 0.65, 2.0, '#8f8aa8', 0.8);
+      else spawn('', `-${formatNum(e.damage)}`, BASE_X + 0.65, 2.0, '#ff7a7a', 0.95);
     });
     return () => {
       offHit();
@@ -1109,8 +1122,8 @@ function HurtVignette() {
   const pulse = useRef(0);
 
   useEffect(() => {
-    return combatBus.on('hurt', () => {
-      pulse.current = 1;
+    return combatBus.on('hurt', (e) => {
+      if (!e.miss) pulse.current = 1;
     });
   }, []);
 
@@ -1207,37 +1220,198 @@ function LifestealFX() {
 }
 
 // ---------------- HP bars ----------------
-function HpBar({ x, y, frac, c }: { x: number; y: number; frac: number; c: string }) {
+// Epic HP bars: gold-trimmed frame with segment ticks and a gloss highlight, a
+// vertical-gradient fill that shifts green→amber→red as it drains, a hot chip
+// showing recent damage, diamond end-caps, a periodic shine sweep, and a glow
+// that throbs when the owner is nearly dead.
+function useBarTextures() {
+  return useMemo(() => {
+    const W = 256;
+    const H = 48;
+    const round = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    };
+    const make = (paint: (ctx: CanvasRenderingContext2D) => void) => {
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      paint(c.getContext('2d')!);
+      const tex = new THREE.CanvasTexture(c);
+      tex.needsUpdate = true;
+      return tex;
+    };
+    // dark backing plate
+    const back = make((ctx) => {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, 'rgba(14,10,26,0.95)');
+      g.addColorStop(1, 'rgba(4,2,10,0.95)');
+      ctx.fillStyle = g;
+      round(ctx, 2, 2, W - 4, H - 4, 10);
+      ctx.fill();
+    });
+    // grayscale fill (tinted via material.color): bright top, dark bottom + top gloss
+    const fill = make((ctx) => {
+      const g = ctx.createLinearGradient(0, 6, 0, H - 6);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.45, '#c9c9c9');
+      g.addColorStop(1, '#5a5a5a');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 6, W, H - 12);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillRect(0, 6, W, 7);
+    });
+    // gold frame + segment ticks on top of everything
+    const frame = make((ctx) => {
+      ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+      ctx.lineWidth = 5;
+      round(ctx, 3, 3, W - 6, H - 6, 10);
+      ctx.stroke();
+      const gold = ctx.createLinearGradient(0, 0, 0, H);
+      gold.addColorStop(0, '#ffe9a0');
+      gold.addColorStop(0.5, '#b98b2e');
+      gold.addColorStop(1, '#8a6420');
+      ctx.strokeStyle = gold;
+      ctx.lineWidth = 2.5;
+      round(ctx, 2.5, 2.5, W - 5, H - 5, 10);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      for (let i = 1; i < 10; i++) ctx.fillRect((W / 10) * i, 7, 1.5, H - 14);
+    });
+    return { back, fill, frame };
+  }, []);
+}
+
+/** Dispose the bar textures when their owner unmounts (enemy bar dies per run). */
+function useBarTexturesManaged() {
+  const tex = useBarTextures();
+  useEffect(
+    () => () => {
+      tex.back.dispose();
+      tex.fill.dispose();
+      tex.frame.dispose();
+    },
+    [tex],
+  );
+  return tex;
+}
+
+// "☠ BOSS ☠" plate above the bar — drawn once, shared by every boss bar
+let bossPlateTex: THREE.CanvasTexture | null = null;
+function getBossPlateTex(): THREE.CanvasTexture {
+  if (!bossPlateTex) {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 64;
+    const ctx = c.getContext('2d')!;
+    ctx.font = '900 38px Avenir Next, Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ff2a2a';
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = 'rgba(20,4,8,0.95)';
+    ctx.strokeText('☠ BOSS ☠', 128, 34);
+    const g = ctx.createLinearGradient(0, 8, 0, 56);
+    g.addColorStop(0, '#ffe9a0');
+    g.addColorStop(1, '#ff7a4a');
+    ctx.fillStyle = g;
+    ctx.fillText('☠ BOSS ☠', 128, 34);
+    bossPlateTex = new THREE.CanvasTexture(c);
+    bossPlateTex.needsUpdate = true;
+  }
+  return bossPlateTex;
+}
+
+const HP_HIGH = new THREE.Color('#3fe06a');
+const HP_MID = new THREE.Color('#ffcf3d');
+const HP_LOW = new THREE.Color('#ff3b46');
+
+function HpBar({ x, y, frac, c, w = 1.2, shift = false, boss = false }: { x: number; y: number; frac: number; c: string; w?: number; shift?: boolean; boss?: boolean }) {
+  const tex = useBarTexturesManaged();
+  const glowTex = useGlowTex();
   const fill = useRef<THREE.Mesh>(null);
-  const ghost = useRef<THREE.Mesh>(null); // white "recent damage" chip that trails the fill
+  const fillMat = useRef<THREE.MeshBasicMaterial>(null);
+  const ghost = useRef<THREE.Mesh>(null); // hot "recent damage" chip trailing the fill
+  const glow = useRef<THREE.MeshBasicMaterial>(null);
   const cur = useRef(frac);
   const slow = useRef(frac);
+  const iw = w * 0.94; // inner (fill) width inside the frame
+  const base = useMemo(() => new THREE.Color(c), [c]);
+
   useFrame((_, dt) => {
+    const t = now();
     cur.current += (frac - cur.current) * Math.min(1, dt * 14);
     slow.current += (frac - slow.current) * Math.min(1, dt * 3);
     const set = (m: THREE.Mesh | null, f: number) => {
       if (!m) return;
       const v = Math.max(0.001, f);
       m.scale.x = v;
-      m.position.x = -0.5 * (1 - v);
+      m.position.x = -iw * 0.5 * (1 - v);
     };
     set(fill.current, cur.current);
     set(ghost.current, Math.max(slow.current, cur.current));
+    // hero bar shifts green→amber→red as it drains; enemy keeps its own color
+    if (fillMat.current) {
+      if (shift) {
+        const f = cur.current;
+        fillMat.current.color.copy(f > 0.5 ? HP_HIGH : f > 0.25 ? HP_MID : HP_LOW);
+        if (f > 0.5) fillMat.current.color.lerp(HP_MID, 1 - (f - 0.5) * 2 * 0.5);
+      } else {
+        fillMat.current.color.copy(base);
+      }
+    }
+    // near-death throb
+    if (glow.current) {
+      const low = cur.current < 0.3 ? 1 - cur.current / 0.3 : 0;
+      glow.current.opacity = low * (0.3 + Math.sin(t * 6) * 0.18);
+      if (glow.current.opacity > 0) glow.current.color.copy(shift ? HP_LOW : base);
+    }
   });
+
   return (
     <Billboard position={[x, y, 0]}>
+      {/* near-death glow halo */}
+      <mesh position={[0, 0, -0.01]} renderOrder={12}>
+        <planeGeometry args={[w * 1.6, w * 0.55]} />
+        <meshBasicMaterial ref={glow} map={glowTex} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+      </mesh>
       <mesh renderOrder={13}>
-        <planeGeometry args={[1.06, 0.15]} />
-        <meshBasicMaterial color="#05030a" transparent opacity={0.85} depthWrite={false} />
+        <planeGeometry args={[w, w * 0.1875]} />
+        <meshBasicMaterial map={tex.back} transparent depthWrite={false} />
       </mesh>
-      <mesh ref={ghost} position={[0, 0, 0.005]} renderOrder={14}>
-        <planeGeometry args={[1, 0.1]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.55} depthWrite={false} />
+      <mesh ref={ghost} position={[0, 0, 0.004]} renderOrder={14}>
+        <planeGeometry args={[iw, w * 0.14]} />
+        <meshBasicMaterial color="#ff9a55" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
       </mesh>
-      <mesh ref={fill} position={[0, 0, 0.01]} renderOrder={15}>
-        <planeGeometry args={[1, 0.1]} />
-        <meshBasicMaterial color={c} toneMapped={false} depthWrite={false} />
+      <mesh ref={fill} position={[0, 0, 0.008]} renderOrder={15}>
+        <planeGeometry args={[iw, w * 0.15]} />
+        <meshBasicMaterial ref={fillMat} map={tex.fill} color={c} transparent depthWrite={false} toneMapped={false} />
       </mesh>
+      {/* gold frame + ticks (bosses wear it crimson) */}
+      <mesh position={[0, 0, 0.016]} renderOrder={17}>
+        <planeGeometry args={[w, w * 0.1875]} />
+        <meshBasicMaterial map={tex.frame} color={boss ? '#ff9a8a' : '#ffffff'} transparent depthWrite={false} />
+      </mesh>
+      {/* diamond end-caps */}
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * w * 0.5, 0, 0.02]} rotation-z={Math.PI / 4} renderOrder={18}>
+          <planeGeometry args={[w * 0.075, w * 0.075]} />
+          <meshBasicMaterial color={boss ? '#ff5d5d' : '#e8bc4a'} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
+      {/* boss plate riding above the frame */}
+      {boss && (
+        <mesh position={[0, w * 0.17, 0.02]} renderOrder={18}>
+          <planeGeometry args={[w * 0.6, w * 0.15]} />
+          <meshBasicMaterial map={getBossPlateTex()} transparent depthWrite={false} toneMapped={false} />
+        </mesh>
+      )}
     </Billboard>
   );
 }
@@ -1247,16 +1421,17 @@ function CameraRig() {
   const { camera } = useThree();
   const shake = useRef(0);
   const kick = useRef(0);
-  const base = useMemo(() => new THREE.Vector3(0, 1.8, 6.4), []);
+  const base = useMemo(() => new THREE.Vector3(0, 2.0, 6.4), []);
   useEffect(() => {
     const offHit = combatBus.on('hit', (e) => {
       const step = COMBO[comboFor(e)];
+      if (e.miss) return; // the swing happens but nothing lands
       const big = e.double || e.crit || step.slam;
       shake.current = Math.min(0.4, shake.current + (big ? 0.24 : 0.09));
       kick.current = Math.min(0.55, kick.current + (big ? 0.42 : 0.15));
     });
-    const offHurt = combatBus.on('hurt', () => {
-      shake.current = Math.min(0.4, shake.current + 0.12);
+    const offHurt = combatBus.on('hurt', (e) => {
+      if (!e.miss) shake.current = Math.min(0.4, shake.current + 0.12);
     });
     const offKill = combatBus.on('kill', () => {
       shake.current = Math.min(0.4, shake.current + 0.18);
@@ -1278,10 +1453,15 @@ function CameraRig() {
       base.y + Math.sin(t * 0.17) * 0.05 + (Math.random() - 0.5) * s * 0.7,
       base.z - kick.current * 0.9,
     );
-    camera.lookAt(0, 1.28, 0);
+    camera.lookAt(0, 1.72, 0);
   });
   return null;
 }
+
+// Trial toggles: swap the sprite fighters/backdrop for the Meshy.ai GLBs.
+const USE_3D_HERO = true;
+const USE_3D_ENEMY = true;
+const USE_3D_ARENA = true;
 
 // ---------------- World ----------------
 function World() {
@@ -1299,19 +1479,21 @@ function World() {
     <>
       <color attach="background" args={['#060410']} />
 
-      <Backdrop />
-      <NebulaPulse />
+      {(USE_3D_HERO || USE_3D_ARENA) && <TrialLights />}
+      {USE_3D_ARENA ? <Arena3D /> : <Backdrop />}
+      {!USE_3D_ARENA && <NebulaPulse />}
       <Stars radius={70} depth={30} count={900} factor={3} saturation={0.5} fade speed={0.5} />
-      <ArenaFloor />
+      {!USE_3D_ARENA && <ArenaFloor />}
       <Embers />
 
       {/* Knight renders before the FX so its hit handler advances the combo first */}
-      <Knight alive={alive} />
-      {alive && <Demon kind={enemyKind as EnemyKind} />}
+      {USE_3D_HERO ? <Hero3D alive={alive} /> : <Knight alive={alive} />}
+      {alive &&
+        (USE_3D_ENEMY ? <Enemy3D kind={enemyKind as EnemyKind} /> : <Demon kind={enemyKind as EnemyKind} />)}
 
-      <HpBar x={BASE_X + 0.1} y={2.5} frac={heroMax > 0 ? heroHp / heroMax : 0} c="#37d15f" />
+      <HpBar x={BASE_X + 0.1} y={2.5} frac={heroMax > 0 ? heroHp / heroMax : 0} c="#37d15f" shift />
       {alive && (
-        <HpBar x={DEMON_X} y={Math.min(DEMON_H * kindConf.scale + 0.3, 3.05)} frac={enemyMax > 0 ? enemyHp / enemyMax : 0} c="#ff3d57" />
+        <HpBar x={DEMON_X} y={Math.min(DEMON_H * kindConf.scale + 0.3, 3.05)} frac={enemyMax > 0 ? enemyHp / enemyMax : 0} c="#ff3d57" w={enemyKind === "boss" ? 1.45 : 1.2} boss={enemyKind === "boss"} />
       )}
 
       {alive && <SlashFX classId={heroClass as ClassId} />}
@@ -1327,15 +1509,27 @@ function World() {
   );
 }
 
-// While AFK the frameloop is 'demand'; this ticker still requests a frame every
-// UNFOCUSED_FRAME_INTERVAL_MS so the scene idles at ~10fps instead of freezing
-// solid — alive behind the dim, but far cheaper than the full 60fps loop.
-function AfkTicker({ afk }: { afk: boolean }) {
+// We drive the render loop ourselves (frameloop='demand') so we can CAP the frame
+// rate. R3F's 'always' loop renders once per display refresh — on a 120Hz ProMotion
+// Mac that pins the GPU at 120fps rendering the ~1.8M-tri arena + bloom, which for a
+// fundamentally idle game just cooks the laptop. We invalidate at a steady 60fps
+// while focused, and drop to ~10fps while AFK. Nothing renders between ticks.
+const FOCUSED_FPS = 60;
+function FrameLoop({ afk }: { afk: boolean }) {
   const invalidate = useThree((s) => s.invalidate);
   useEffect(() => {
-    if (!afk) return;
-    const id = setInterval(() => invalidate(), UNFOCUSED_FRAME_INTERVAL_MS);
-    return () => clearInterval(id);
+    const minDelta = (afk ? UNFOCUSED_FRAME_INTERVAL_MS : 1000 / FOCUSED_FPS) - 2; // epsilon
+    let raf = 0;
+    let last = -Infinity;
+    const tick = (t: number) => {
+      raf = requestAnimationFrame(tick);
+      if (t - last >= minDelta) {
+        last = t;
+        invalidate(); // request one render (frameloop='demand')
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [afk, invalidate]);
   return null;
 }
@@ -1345,12 +1539,12 @@ export function Scene3D() {
   return (
     <Canvas
       className="scene"
-      dpr={[1, 2]}
-      frameloop={afk ? 'demand' : 'always'}
-      camera={{ position: [0, 1.8, 6.4], fov: 42 }}
+      dpr={[1, 1.5]}
+      frameloop="demand"
+      camera={{ position: [0, 2.0, 6.4], fov: 42 }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
     >
-      <AfkTicker afk={afk} />
+      <FrameLoop afk={afk} />
       <Suspense fallback={null}>
         <World />
       </Suspense>

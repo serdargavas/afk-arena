@@ -1,4 +1,4 @@
-import type { RelicDef } from '../types';
+import type { Archetype, RelicDef, RelicMods } from '../types';
 
 // 34 relics across 7 archetypes. Magnitudes are the COMMON baseline; the rolled
 // rarity scales them (see RARITY_MULT). Effects are expressed purely as stat
@@ -62,3 +62,15 @@ export const RELIC_BY_ID: Record<string, RelicDef> = Object.fromEntries(
 export function relicDef(id: string): RelicDef | undefined {
   return RELIC_BY_ID[id];
 }
+
+// Codex set bonuses: discover every relic of an archetype (any rarity) and its
+// bonus applies permanently, on every run — collection becomes power.
+export const ARCHETYPE_SET_BONUS: Record<Archetype, { desc: string; mods: RelicMods }> = {
+  attack: { desc: '+6% attack', mods: { attackPct: 0.06 } },
+  speed: { desc: '+6% attack speed', mods: { attackSpeedPct: 0.06 } },
+  crit: { desc: '+4% crit chance', mods: { critChance: 0.04 } },
+  dot: { desc: '+8 poison dps', mods: { dotDps: 8 } },
+  summon: { desc: '+10% summon dps', mods: { summonPct: 0.1 } },
+  tank: { desc: '+10% max HP', mods: { maxHpPct: 0.1 } },
+  gold: { desc: '+12% gold', mods: { goldMultPct: 0.12 } },
+};

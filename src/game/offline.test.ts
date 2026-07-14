@@ -5,13 +5,16 @@ import { applyOffline } from './offline';
 import { MAX_OFFLINE_SECONDS } from './constants';
 
 describe('applyOffline', () => {
-  it('progresses the run (gold, kills, stages, auto-picked relics)', () => {
+  it('safe-farms while away: gold and kills accrue, no progression, no death', () => {
     const s = createInitialSave(0);
+    const startStage = s.run.stage;
     const r = applyOffline(s, 300);
     expect(r.kills).toBeGreaterThan(0);
     expect(r.goldGained).toBeGreaterThan(0);
-    expect(r.stagesCleared).toBeGreaterThanOrEqual(1);
-    expect(r.relicsGained).toBeGreaterThanOrEqual(1);
+    expect(r.stagesCleared).toBe(0); // AFK farms the current creature on repeat
+    expect(s.run.stage).toBe(startStage);
+    expect(r.died).toBe(false);
+    expect(s.run.hero.hp).toBeGreaterThan(0);
   });
 
   it('does nothing for zero elapsed', () => {

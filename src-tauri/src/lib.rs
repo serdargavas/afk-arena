@@ -292,6 +292,27 @@ async fn google_sign_in(app: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Hide the game into the menu-bar tray: window disappears and (on macOS) the
+/// app leaves the Dock so it lives only as the dragon up top.
+#[tauri::command]
+fn hide_to_tray(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.hide();
+    }
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+}
+
+/// Bring the game back from the tray.
+fn show_main(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -301,13 +322,38 @@ pub fn run() {
             save_game,
             set_always_on_top,
             set_over_fullscreen,
-            google_sign_in
+            google_sign_in,
+            hide_to_tray
         ])
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
                 position_bottom_right(&win);
                 let _ = win.show(); // config starts hidden to avoid a corner "jump"
             }
+            // Menu-bar dragon: left-click toggles the window back, right-click menus.
+            let show = tauri::menu::MenuItem::with_id(app, "show", "Show Game", true, None::<&str>)?;
+            let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = tauri::menu::Menu::with_items(app, &[&show, &quit])?;
+            tauri::tray::TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => show_main(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main(tray.app_handle());
+                    }
+                })
+                .build(app)?;
             Ok(())
         })
         .run(tauri::generate_context!())

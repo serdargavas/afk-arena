@@ -6,7 +6,7 @@ import { formatNum } from './format';
  *  pip per enemy (the old HUD bar is gone — the scene got its space), essence,
  *  a quick 1×/2×/3× speed control, and — while the window is unfocused — a dim
  *  veil plus an AFK earnings card over the (now slow-idling) scene. */
-export function SceneOverlays() {
+export function SceneOverlays({ onOpenDaily }: { onOpenDaily: () => void }) {
   useGameStore((s) => s.screenVersion); // re-read settings.gameSpeed on change
   const stage = useGameStore((s) => s.stage);
   const biome = useGameStore((s) => s.biomeName);
@@ -14,6 +14,7 @@ export function SceneOverlays() {
   const essence = useGameStore((s) => s.essence);
   const afk = useGameStore((s) => s.afk);
   const afkGold = useGameStore((s) => s.afkGold);
+  const dailyClaimable = useGameStore((s) => s.dailyClaimable);
   const speed = useGameStore((s) => s.save?.meta.settings.gameSpeed ?? 1);
   const setSpeed = useGameStore((s) => s.actions.setGameSpeed);
 
@@ -35,9 +36,6 @@ export function SceneOverlays() {
           </div>
         </div>
         <div className="scene-top-right">
-          <div className="ess-chip" title="Essence">
-            ✦ {formatNum(essence)}
-          </div>
           <div className="speed-seg mini">
             {[1, 2, 3].map((n) => (
               <button
@@ -49,6 +47,13 @@ export function SceneOverlays() {
               </button>
             ))}
           </div>
+          <div className="ess-chip" title="Essence">
+            ✦ {formatNum(essence)}
+          </div>
+          <button className="daily-btn" onClick={onOpenDaily} title="Daily quests">
+            📜
+            {dailyClaimable > 0 && <span className="daily-badge">{dailyClaimable}</span>}
+          </button>
         </div>
       </div>
 

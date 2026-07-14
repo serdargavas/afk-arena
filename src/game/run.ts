@@ -6,7 +6,10 @@ import {
   SHOP_BASE_COST,
   SHOP_COST_GROWTH,
   MAX_INVENTORY,
+  SPAWN_GRACE,
+  PITY_BOX_GUARANTEE,
 } from './constants';
+import { bumpDaily, dailyPoints, claimableMilestones, ensureDaily, streakClaimable, STREAK_DAYS } from './content/daily';
 import { RARITIES } from './types';
 import type { ShopKey } from './types';
 import { computeStats } from './stats';
@@ -47,11 +50,18 @@ function essencePctFromMeta(meta: MetaState): number {
 }
 
 function boxLuck(meta: MetaState): number {
-  return metaLevel(meta, 'foresight');
+  return metaLevel(meta, 'foresight') * (META_BY_ID['foresight']?.extraRelicChoice ?? 1);
 }
 
 function randomRelic(rng: Rng): RelicInstance {
   return { id: rng.pick(RELICS).id, rarity: rollRarity(rng) };
+}
+
+/** Log a relic into the permanent codex (best rarity per relic ever obtained). */
+export function recordRelic(save: GameSave, r: RelicInstance): void {
+  const idx = RARITIES.indexOf(r.rarity);
+  const prev = save.meta.codex[r.id];
+  if (prev === undefined || idx > prev) save.meta.codex[r.id] = idx;
 }
 
 /** Roll the mystery-box relic: variety-weighted (relics you own fewer copies of
@@ -61,7 +71,14 @@ function rollBoxRelic(save: GameSave, rng: Rng): RelicInstance {
   for (const r of save.run.relics) owned.set(r.id, (owned.get(r.id) ?? 0) + 1);
   const weights = RELICS.map((def) => 1 / (1 + (owned.get(def.id) ?? 0)));
   const def = RELICS[rng.weightedIndex(weights)];
-  return { id: def.id, rarity: rollRarity(rng, boxLuck(save.meta)) };
+  let rarity = rollRarity(rng, boxLuck(save.meta));
+  // Pity: every PITY_BOX_GUARANTEE-th box is epic or better, guaranteed.
+  const epicIdx = RARITIES.indexOf('epic');
+  if (save.meta.pity >= PITY_BOX_GUARANTEE - 1 && RARITIES.indexOf(rarity) < epicIdx) {
+    rarity = 'epic';
+  }
+  save.meta.pity = RARITIES.indexOf(rarity) >= epicIdx ? 0 : save.meta.pity + 1;
+  return { id: def.id, rarity };
 }
 
 /** Fresh run built from the current meta (selected class, head-start, etc.). */
@@ -92,10 +109,15 @@ export function startRun(save: GameSave): void {
     bestStageThisRun: startStage,
     essenceOnDeath: 0,
     dropUid: null,
+    spawnGrace: 0,
   };
   // Starting a run above stage 1 (via Head Start) hands you one random relic per
   // skipped stage so you're not thrown in weak — you arrive as if you'd earned them.
-  for (let i = 1; i < startStage; i++) run.relics.push(randomRelic(rng));
+  for (let i = 1; i < startStage; i++) {
+    const bonus = randomRelic(rng);
+    run.relics.push(bonus);
+    recordRelic(save, bonus);
+  }
   save.run = run;
   save.rngState = rng.state;
   recompute(save);
@@ -120,6 +142,7 @@ export function advanceWave(save: GameSave, rng: Rng): boolean {
     // A mystery box only drops every Nth cleared stage (relics are rarer but far
     // stronger now); other clears may roll an event, else combat flows straight on.
     // NB: uses the tick's live rng — never re-seed from save.rngState mid-tick.
+    bumpDaily(save, 'stages');
     if (cleared % RELIC_EVERY_STAGES === 0) {
       run.phase = 'relic';
       run.offer = [rollBoxRelic(save, rng)];
@@ -128,11 +151,13 @@ export function advanceWave(save: GameSave, rng: Rng): boolean {
       run.eventId = rng.pick(EVENTS).id;
     } else {
       run.enemy = makeEnemy(run.stage, enemyKindFor(run.stage, run.waveInStage, rng));
+      run.spawnGrace = SPAWN_GRACE;
     }
     return true;
   }
   run.waveInStage += 1;
   run.enemy = makeEnemy(run.stage, enemyKindFor(run.stage, run.waveInStage, rng));
+  run.spawnGrace = SPAWN_GRACE;
   return false;
 }
 
@@ -141,7 +166,11 @@ export function pickRelic(save: GameSave, index: number): void {
   const run = save.run;
   if (run.phase !== 'relic' || !run.offer) return;
   const chosen = run.offer[index] ?? run.offer[0];
-  if (chosen) run.relics.push(chosen);
+  if (chosen) {
+    run.relics.push(chosen);
+    recordRelic(save, chosen);
+  }
+  bumpDaily(save, 'boxes');
   run.offer = null;
   recompute(save);
   run.hero.hp = run.stats.maxHp;
@@ -158,6 +187,7 @@ function afterChoice(save: GameSave): void {
   } else {
     run.phase = 'fighting';
     run.enemy = makeEnemy(run.stage, enemyKindFor(run.stage, run.waveInStage, rng));
+    run.spawnGrace = SPAWN_GRACE;
   }
   save.rngState = rng.state;
 }
@@ -173,7 +203,9 @@ export function resolveEvent(save: GameSave, choiceIndex: number): void {
       s.run.hero.hp = Math.min(s.run.stats.maxHp, s.run.hero.hp + s.run.stats.maxHp * frac);
     },
     grantRelic: (s) => {
-      s.run.relics.push(randomRelic(rng));
+      const granted = randomRelic(rng);
+      s.run.relics.push(granted);
+      recordRelic(s, granted);
       recompute(s);
     },
     rng: () => rng.next(),
@@ -187,6 +219,7 @@ export function resolveEvent(save: GameSave, choiceIndex: number): void {
   run.phase = 'fighting';
   const rng2 = new Rng(save.rngState);
   run.enemy = makeEnemy(run.stage, enemyKindFor(run.stage, run.waveInStage, rng2));
+  run.spawnGrace = SPAWN_GRACE;
   save.rngState = rng2.state;
 }
 
@@ -218,6 +251,7 @@ export function die(save: GameSave, rng: Rng): void {
   save.meta.bestStage = Math.max(save.meta.bestStage, run.bestStageThisRun);
   save.meta.bestEssence = Math.max(save.meta.bestEssence, save.meta.essence);
   save.meta.totalRebirths += 1;
+  bumpDaily(save, 'rebirths');
   // Reward: a permanent item scaled to how far this run reached.
   const item = rollItem(rng, run.bestStageThisRun, save.meta.itemSeq++);
   save.meta.inventory.push(item);
@@ -255,6 +289,7 @@ export function buyShop(save: GameSave, key: ShopKey): boolean {
   if (save.run.gold < cost) return false;
   save.run.gold -= cost;
   save.run.shop[key] += 1;
+  bumpDaily(save, 'shopBuys');
   recompute(save);
   return true;
 }
@@ -276,4 +311,65 @@ export function bestOfferIndex(save: GameSave): number {
   return best;
 }
 
-export { relicDef };
+// --- Daily milestone + streak claims (called outside the tick; rngState is authoritative) ---
+
+function stageGold(save: GameSave, mult: number): number {
+  return Math.ceil(makeEnemy(Math.max(save.run.stage, 1), 'normal').goldReward * mult);
+}
+
+function essenceReward(save: GameSave, frac: number): number {
+  const best = Math.max(save.meta.bestStage, save.run.stage);
+  return Math.max(1, Math.floor(essenceForStage(best, 0) * frac));
+}
+
+/** Claim a daily quest milestone (25/50/75/100 points). Returns true on success. */
+export function claimDailyMilestone(save: GameSave, milestone: number): boolean {
+  if (save.run.phase === 'dead') return false; // rewards would die with the run
+  const d = ensureDaily(save, save.lastSeen);
+  if (!claimableMilestones(save).includes(milestone)) return false;
+  d.claimed.push(milestone);
+  const rng = new Rng(save.rngState);
+  if (milestone === 25) save.run.gold += stageGold(save, 25);
+  else if (milestone === 50) save.meta.essence += essenceReward(save, 0.1);
+  else if (milestone === 75) save.run.gold += stageGold(save, 60);
+  else {
+    // 100: a bonus relic joins the current run, luck-boosted
+    const bonus: RelicInstance = { id: rng.pick(RELICS).id, rarity: rollRarity(rng, 1) };
+    save.run.relics.push(bonus);
+    recordRelic(save, bonus);
+    recompute(save);
+  }
+  save.rngState = rng.state;
+  save.meta.bestEssence = Math.max(save.meta.bestEssence, save.meta.essence);
+  return true;
+}
+
+/** Claim today's streak chest (forgiving: missed days never reset the calendar). */
+export function claimStreakDay(save: GameSave): boolean {
+  if (save.run.phase === 'dead') return false;
+  ensureDaily(save, save.lastSeen); // roll the day over before judging the claim
+  if (!streakClaimable(save, save.lastSeen)) return false;
+  const d = save.meta.daily;
+  const slot = d.streak % STREAK_DAYS; // 0..6
+  const rng = new Rng(save.rngState);
+  if (slot === 0) save.run.gold += stageGold(save, 20);
+  else if (slot === 1) save.meta.essence += essenceReward(save, 0.05);
+  else if (slot === 2) save.run.gold += stageGold(save, 40);
+  else if (slot === 3) save.meta.essence += essenceReward(save, 0.08);
+  else if (slot === 4) save.run.gold += stageGold(save, 60);
+  else if (slot === 5) save.meta.essence += essenceReward(save, 0.1);
+  else {
+    const bonus: RelicInstance = { id: rng.pick(RELICS).id, rarity: rollRarity(rng, 2) };
+    save.run.relics.push(bonus);
+    recordRelic(save, bonus);
+    save.run.gold += stageGold(save, 80);
+    recompute(save);
+  }
+  save.rngState = rng.state;
+  d.streak += 1;
+  d.lastStreakDay = d.day;
+  save.meta.bestEssence = Math.max(save.meta.bestEssence, save.meta.essence);
+  return true;
+}
+
+export { relicDef, dailyPoints, claimableMilestones, streakClaimable };

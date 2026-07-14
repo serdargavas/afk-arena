@@ -4,7 +4,7 @@ import { GameLoop } from '../loop';
 import { loadRaw, saveRaw } from '../platform/storage';
 import { createInitialSave, deserialize, serialize, applyOffline } from '../game';
 import { useGameStore } from '../store/gameStore';
-import { setAlwaysOnTop, setOverFullscreen } from '../platform/window';
+import { setAlwaysOnTop, setOverFullscreen, hideToTray } from '../platform/window';
 import { isTauri } from '../platform/tauri';
 import { TitleBar } from './TitleBar';
 import { RunPanel } from './RunPanel';
@@ -16,6 +16,7 @@ import { Settings } from './Settings';
 import { OfflineModal } from './OfflineModal';
 import { Leaderboard } from './Leaderboard';
 import { ActionBar, type Panel, type SheetTab } from './ActionBar';
+import { DailyModal } from './DailyModal';
 import { Scene3D } from '../render3d/Scene3D';
 import { SceneOverlays } from './SceneOverlays';
 import { leaderboardEnabled, submitScore } from '../net/leaderboard';
@@ -35,7 +36,7 @@ export default function App() {
   const phase = useGameStore((s) => s.phase);
   const [panel, setPanel] = useState<Panel | null>(null);
   const charTab: SheetTab | null =
-    panel === 'meta' || panel === 'skills' || panel === 'gear' ? panel : null;
+    panel === 'meta' || panel === 'skills' || panel === 'gear' || panel === 'codex' ? panel : null;
 
   // Auto-sync the run's result to the leaderboard when it ends (no-op if signed out).
   useEffect(() => {
@@ -81,9 +82,11 @@ export default function App() {
         unlisten.push(await win.onFocusChanged(({ payload: focused }) => loop.setFocused(focused)));
         unlisten.push(
           await win.onCloseRequested(async (e) => {
+            // Closing doesn't quit: the game tucks itself into the menu bar and
+            // keeps idling. Quit lives in the tray menu.
             e.preventDefault();
             await saveRaw(serialize(loop.save));
-            await win.destroy();
+            await hideToTray();
           }),
         );
       }
@@ -104,13 +107,14 @@ export default function App() {
     <div className="app">
       <TitleBar />
       <Scene3D />
-      <SceneOverlays />
+      <SceneOverlays onOpenDaily={() => setPanel('daily')} />
       <ActionBar onOpen={setPanel} />
       <RunPanel />
       {phase === 'relic' && <MysteryBox />}
       {phase === 'event' && <EventModal />}
       {phase === 'dead' && <DeathScreen onMeta={() => setPanel('meta')} />}
       {charTab && <RebirthScreen initialTab={charTab} onClose={() => setPanel(null)} />}
+      {panel === 'daily' && <DailyModal onClose={() => setPanel(null)} />}
       {panel === 'settings' && <Settings onClose={() => setPanel(null)} />}
       {panel === 'leaderboard' && <Leaderboard onClose={() => setPanel(null)} />}
       <OfflineModal />

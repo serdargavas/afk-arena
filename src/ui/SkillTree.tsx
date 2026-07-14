@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { SKILL_NODES, SKILL_BY_ID, SKILL_POINTS, skillsAllocated } from '../game';
 
@@ -11,6 +12,7 @@ export function SkillTree() {
   const save = useGameStore((s) => s.save);
   const allocate = useGameStore((s) => s.actions.allocateSkill);
   const respec = useGameStore((s) => s.actions.respecSkills);
+  const [hovered, setHovered] = useState<string | null>(null);
   if (!save) return null;
 
   const skills = save.meta.skills;
@@ -73,18 +75,9 @@ export function SkillTree() {
               key={n.id}
               className={`tree-node ${cls} ${on && !refundable ? 'held' : ''}`}
               onClick={() => (on ? refundable && allocate(n.id) : takeable && allocate(n.id))}
+              onMouseEnter={() => setHovered(n.id)}
+              onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}
             >
-              <title>{`${n.name} — ${n.desc}${
-                on
-                  ? refundable
-                    ? ' (click to refund)'
-                    : ' (refund its children first)'
-                  : takeable
-                    ? ' (click to allocate)'
-                    : n.prereq && !isOn(n.prereq)
-                      ? ` (requires ${SKILL_BY_ID[n.prereq].name})`
-                      : ' (no points left)'
-              }`}</title>
               <circle cx={n.x} cy={n.y} r={deep ? 17 : 15} className="tree-node-ring" />
               <circle cx={n.x} cy={n.y} r={deep ? 14 : 12} className="tree-node-fill" />
               <text x={n.x} y={n.y + 1} className="tree-node-ico">
@@ -94,7 +87,32 @@ export function SkillTree() {
           );
         })}
       </svg>
-      <div className="tree-hint">Chains grow from the centre · tap an allocated tip to refund</div>
+      {(() => {
+        const n = hovered ? SKILL_BY_ID[hovered] : null;
+        if (!n) {
+          return <div className="tree-hint">Chains grow from the centre · tap an allocated tip to refund</div>;
+        }
+        const on = isOn(n.id);
+        const status = on
+          ? hasChildOn(n.id)
+            ? 'Allocated — refund its children first'
+            : 'Allocated — click to refund'
+          : canTake(n.id)
+            ? 'Click to allocate'
+            : n.prereq && !isOn(n.prereq)
+              ? `Requires ${SKILL_BY_ID[n.prereq].name}`
+              : 'No points left';
+        return (
+          <div className="tree-info">
+            <span className="tree-info-ico">{n.icon}</span>
+            <div className="tree-info-mid">
+              <span className="tree-info-name">{n.name}</span>
+              <span className="tree-info-desc">{n.desc}</span>
+            </div>
+            <span className={`tree-info-status ${on ? 'on' : ''}`}>{status}</span>
+          </div>
+        );
+      })()}
     </>
   );
 }

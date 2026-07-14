@@ -19,6 +19,9 @@ export interface GameActions {
   setAutoBuy: (v: boolean) => void;
   setGameSpeed: (n: number) => void;
   setPlayerName: (name: string) => void;
+  claimDailyMilestone: (m: number) => void;
+  claimStreakDay: () => void;
+  markGearSeen: () => void;
 }
 
 const NOOP: GameActions = {
@@ -38,6 +41,9 @@ const NOOP: GameActions = {
   setAutoBuy: () => {},
   setGameSpeed: () => {},
   setPlayerName: () => {},
+  claimDailyMilestone: () => {},
+  claimStreakDay: () => {},
+  markGearSeen: () => {},
 };
 
 const INITIAL: UISnapshot = {
@@ -58,6 +64,10 @@ const INITIAL: UISnapshot = {
   relicCount: 0,
   bestStage: 1,
   essenceIfRebirth: 0,
+  dailyClaimable: 0,
+  badgeMeta: 0,
+  badgeSkills: 0,
+  badgeGear: 0,
 };
 
 interface GameStore extends UISnapshot {

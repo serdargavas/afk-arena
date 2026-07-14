@@ -18,3 +18,13 @@ export async function setOverFullscreen(on: boolean): Promise<void> {
     console.error('[window] set_over_fullscreen failed:', e);
   }
 }
+
+/** Hide the game into the macOS menu-bar tray (Rust hides the window and
+ *  removes the Dock icon; the tray dragon brings it back). */
+export async function hideToTray(): Promise<void> {
+  try {
+    await invoke('hide_to_tray');
+  } catch (e) {
+    console.error('[window] hide_to_tray failed:', e);
+  }
+}
