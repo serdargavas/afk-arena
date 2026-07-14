@@ -1,0 +1,63 @@
+# Auto-release: every push to main builds the macOS app and publishes the DMG
+# as a new (latest) GitHub release, so the README download link always serves
+# the freshest build.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: macos-14 # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # OAuth + Supabase config: the whole gitignored .env, stored as one secret.
+      # build.rs bakes the Google client id/secret; Vite reads the VITE_* vars.
+      - name: Restore .env
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: printf '%s\n' "$ENV_FILE" > .env
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm test
+
+      - run: pnpm tauri build
+
+      - name: Read version
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}-build.${{ github.run_number }}
+          name: AFK Arena v${{ steps.v.outputs.version }} (build ${{ github.run_number }})
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            src-tauri/target/release/bundle/dmg/*.dmg
